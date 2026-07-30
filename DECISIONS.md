@@ -563,3 +563,97 @@ anyone would each become their own component and stretch the canvas by ~400px ap
 Unattached people are now gathered into a roughly square block whose width grows as √n.
 Families keep the shared timeline; someone with no relatives has no generation to be part
 of, so little is lost.
+
+## 21. Phase 1.75: the canvas becomes the editor
+
+**New phase.** Adding people moves onto the graph itself. Hovering or tapping a card
+reveals three affordances — **+ partner** to the right, **+ child** below, **+ parents**
+above — and clicking one opens a name box where the new person will be. The quick-add form
+stays as the bulk-entry fallback; this is an editor layer over the existing SVG canvas and
+layout engine, not a rewrite.
+
+The position of each affordance *is* its label. Partner to the right, child below, parents
+above: you learn the union model by using it rather than by reading about it.
+
+### Never guess which union
+
+The decision this phase turns on. "+ child" on someone with **one** union attaches to it;
+with **none** it creates a single-partner union, because "we know the mother, nobody
+remembers the father" is a normal record rather than an error. With **two or more** it has
+no answer, and both layers refuse to invent one:
+
+* the **server** raises `AmbiguousUnion` and returns 409 with the candidate union ids —
+  nothing is created, not even the person;
+* the **client** moves into a `choosing-union` state, highlights those union dots, and
+  **sends no further request until one is tapped**.
+
+Enforcing it server-side matters more than the UI prompt: a child silently attached to the
+wrong marriage is invisible afterwards. There is no downstream check that would ever
+surface it.
+
+### Undo is one step and narrow
+
+Ctrl/Cmd+Z, and an Undo button on the toast after each commit. Implemented as the inverse
+API call (`DELETE /api/v1/persons/{id}`), not as a client-side history stack, so what is
+undone is what the database actually did.
+
+**Scope, deliberately small:** the last creation only. The server refuses with 409
+`not_provisional` once that person has acquired anything of their own — a child, a second
+union, a claim, a photo, a member anchored to them. Undo takes back the node you typed a
+second ago; it is not a delete button, and it must never become one by accident. A union
+created solely to hold the undone person goes with them, unless it still has two partners
+or a child, in which case it is a real record and stays.
+
+### Optimistic, but honest
+
+A typed name appears instantly so the canvas can keep up with someone reciting a family out
+loud. If the server refuses, the node is removed and the reason is shown in a toast. The
+graph never silently keeps something the database rejected — including inline field edits,
+which roll back to the previous values on failure.
+
+**The viewport does not move.** Adding a node re-runs the layout, which can shift the whole
+row sideways. The screen position of the anchor is recorded before the change and the view
+is panned by the difference afterwards, so the person you are working on stays under your
+cursor. Without that, every addition would yank the canvas and rapid entry would be
+unusable.
+
+### Rapid sibling entry
+
+Tab commits and immediately opens the next input on the same union: five siblings is five
+names and five Tabs. Birth order is recorded for free — but only into a union whose
+children are *all* already ordered. Numbering only the newcomers, where existing children
+have no recorded order, would invent an ordering over an unordered set and draw the older
+children last as though that were known. In that case the order is left unrecorded and the
+layout falls back to birth year. (Found by a test that asserted the wrong thing first.)
+
+### Years stay uncertain
+
+`year_parsing.py` accepts what people actually say: `1938`, `1930s`, `c. 1940`,
+`1930-1945`, `before 1930`, `?`. Shared with quick-add so both entry points mean the same
+thing by the same string. Unreadable input is **rejected, not guessed** — a wrong year that
+looks confident is worse than an empty field.
+
+It round-trips with `birth_display`: whatever a card shows can be typed back in and yields
+the same stored range. Without that property, opening a year chip and pressing Enter
+without changing anything would silently alter the record. Asserted in the tests.
+
+### Gestures
+
+Wheel, trackpad pinch (`ctrlKey`+wheel, with a much stronger response or it feels stuck),
+and two-finger touch pinch all funnel into one `zoomAbout` function — the graph point under
+the cursor or between the fingers must not move. Double-tap zooms one step on touch. No
+momentum, as agreed. The sheet is unbounded; Fit reframes.
+
+### Guards
+
+45 headless checks now, including: adding a partner/child/parents produces non-overlapping,
+correctly-wired geometry; four siblings entered in a row keep their order; a provisional
+node lands where the affordance points; both of a remarried person's union dots are
+separately addressable (which is what lets the UI ask); affordance hit targets are ≥44px
+and fit around a card on a 390px screen; and pinch keeps its anchor fixed to within a
+thousandth of a pixel across four zoom ratios. 446 backend tests.
+
+**Verified by construction, not by observation.** The layout maths, the API behaviour and
+the state machine are covered by tests; the *feel* of hover, tap, focus and pinch is not,
+because there is no browser here. The click-script in the README is the real verification
+and has not been run by me.

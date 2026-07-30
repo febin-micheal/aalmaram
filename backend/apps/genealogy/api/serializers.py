@@ -9,7 +9,8 @@ someone makes on purpose.
 
 from rest_framework import serializers
 
-from apps.genealogy.models import Gender, Person, UnionType
+from apps.genealogy.models import Gender, Person, RelationType, Union, UnionType
+from apps.genealogy.year_parsing import YearParseError, parse_year_input
 
 
 class PersonSerializer(serializers.Serializer):
@@ -75,6 +76,89 @@ class OverviewPersonSerializer(serializers.Serializer):
 class OverviewUnionSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     band = serializers.IntegerField(read_only=True)
+
+
+class CreatePersonSerializer(serializers.Serializer):
+    """Create one person wired into the graph, as the canvas affordances do.
+
+    `context` names the relationship rather than leaving the client to assemble unions and
+    memberships itself — the server owns "what does + child mean", so the canvas, the admin
+    and any future caller cannot drift apart on it.
+    """
+
+    CONTEXTS = ("partner_of", "child_of_union", "child_of_person", "parent_of")
+
+    context = serializers.ChoiceField(choices=CONTEXTS)
+    #: The person the affordance was clicked on (all contexts except child_of_union).
+    target = serializers.UUIDField(required=False, allow_null=True)
+    #: The chosen union (child_of_union only — used when a person has several).
+    union = serializers.UUIDField(required=False, allow_null=True)
+
+    name_en = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    name_ml = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    gender = serializers.ChoiceField(choices=Gender.choices, required=False, default=Gender.UNKNOWN)
+    #: Free text: "1938", "1930s", "c. 1940", "?" — parsed server-side.
+    birth = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    house_name = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    relation_type = serializers.ChoiceField(
+        choices=RelationType.choices, required=False, default=RelationType.BIOLOGICAL
+    )
+
+    def validate(self, attrs):
+        context = attrs["context"]
+        if context == "child_of_union":
+            if not attrs.get("union"):
+                raise serializers.ValidationError({"union": "child_of_union needs a union id."})
+            if not Union.objects.filter(pk=attrs["union"]).exists():
+                raise serializers.ValidationError({"union": "No such union."})
+        else:
+            if not attrs.get("target"):
+                raise serializers.ValidationError({"target": f"{context} needs a target person."})
+            if not Person.objects.canonical().filter(pk=attrs["target"]).exists():
+                raise serializers.ValidationError({"target": "No such canonical person."})
+
+        if attrs.get("birth"):
+            # Reject an unreadable year here rather than storing a blank and pretending.
+            try:
+                parse_year_input(attrs["birth"])
+            except YearParseError as error:
+                raise serializers.ValidationError({"birth": str(error)}) from error
+        return attrs
+
+
+class UpdatePersonSerializer(serializers.Serializer):
+    """Inline edits from the card or the side panel. Every field optional."""
+
+    name_en = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    name_ml = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    gender = serializers.ChoiceField(choices=Gender.choices, required=False)
+    house_name = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    is_living = serializers.BooleanField(required=False)
+    birth = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    death = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("No fields to update.")
+        for field in ("birth", "death"):
+            if field in attrs and attrs[field]:
+                try:
+                    parse_year_input(attrs[field])
+                except YearParseError as error:
+                    raise serializers.ValidationError({field: str(error)}) from error
+        return attrs
+
+    def to_model_fields(self) -> dict:
+        """Translate into model kwargs, expanding the year strings into their trios."""
+        data = dict(self.validated_data)
+        fields = {}
+        for key in ("name_en", "name_ml", "gender", "house_name", "is_living"):
+            if key in data:
+                fields[key] = data[key]
+        for key, prefix in (("birth", "birth"), ("death", "death")):
+            if key in data:
+                fields |= parse_year_input(data[key]).as_fields(prefix)
+        return fields
 
 
 class QuickAddSerializer(serializers.Serializer):

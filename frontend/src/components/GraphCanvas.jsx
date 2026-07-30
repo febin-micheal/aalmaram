@@ -6,10 +6,12 @@ import {
   dotRadius,
   intersects,
   renderModeFor,
+  toScreen,
   visibleBox,
 } from '../graph/layoutOverview.js'
 import { accentFor, personName, personSecondaryName } from '../graph/person.js'
 import { usePanZoom } from '../graph/usePanZoom.js'
+import Affordances from './Affordances.jsx'
 
 /**
  * The chart.
@@ -34,12 +36,19 @@ export default function GraphCanvas({
   onExpand,
   registerControls,
   onRenderModeChange,
+  editor,
+  activeId,
+  onActivate,
+  onAddRelative,
+  onChooseUnion,
+  onEditYear,
   t,
 }) {
   const svgRef = useRef(null)
   const layoutRef = useRef(layout)
   layoutRef.current = layout
-  const { transform, viewport, fit, centerOn, zoomBy, isDragging, handlers } = usePanZoom(svgRef)
+  const { transform, viewport, fit, centerOn, zoomBy, panBy, isDragging, handlers } =
+    usePanZoom(svgRef)
   const mode = renderModeFor(transform.k)
   const bigPicture = mode === 'dots'
 
@@ -60,8 +69,15 @@ export default function GraphCanvas({
   }, [centerId, fit])
 
   useEffect(() => {
-    registerControls?.({ fit: () => layout && fit(layout.bounds), zoomBy, centerOn })
-  }, [registerControls, fit, zoomBy, centerOn, layout])
+    registerControls?.({
+      fit: () => layout && fit(layout.bounds),
+      zoomBy,
+      centerOn,
+      panBy,
+      transform,
+      toScreenPoint: (point) => toScreen(transform, point),
+    })
+  }, [registerControls, fit, zoomBy, centerOn, panBy, transform, layout])
 
   const houseClusters = useMemo(
     () => (bigPicture && layout ? clusterByHouse(layout) : []),
@@ -103,6 +119,9 @@ export default function GraphCanvas({
       role="application"
       aria-label="Family graph"
       {...handlers}
+      onClick={(event) => {
+        if (event.target === svgRef.current && !isDragging()) onActivate?.(null)
+      }}
     >
       <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
         {/* Edges first so cards always sit on top of their connectors. */}
@@ -124,17 +143,52 @@ export default function GraphCanvas({
 
         {/* Union nodes: the join a couple's children actually hang from. */}
         <g>
-          {[...layout.unions.values()].map((union) => (
-            <circle
-              key={union.id}
-              cx={union.x}
-              cy={union.y}
-              r={bigPicture ? 2 : 5}
-              fill={union.status === 'ended' ? 'var(--canvas-bg)' : 'var(--edge-strong)'}
-              stroke="var(--edge-strong)"
-              strokeWidth={1.5}
-            />
-          ))}
+          {[...layout.unions.values()].map((union) => {
+            const choosing = editor?.mode === 'choosing-union'
+            const isCandidate = choosing && editor.candidateUnions?.includes(union.id)
+            return (
+              <g key={union.id}>
+                {isCandidate && (
+                  // A pulsing halo, and a hit area a finger can actually land on.
+                  <circle
+                    cx={union.x}
+                    cy={union.y}
+                    r={22}
+                    fill="var(--accent-strong)"
+                    opacity={0.18}
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onChooseUnion?.(union.id)
+                    }}
+                  />
+                )}
+                <circle
+                  cx={union.x}
+                  cy={union.y}
+                  r={isCandidate ? 9 : bigPicture ? 2 : 5}
+                  fill={
+                    isCandidate
+                      ? 'var(--accent-strong)'
+                      : union.status === 'ended'
+                        ? 'var(--canvas-bg)'
+                        : 'var(--edge-strong)'
+                  }
+                  stroke="var(--edge-strong)"
+                  strokeWidth={1.5}
+                  className={isCandidate ? 'cursor-pointer' : undefined}
+                  onClick={
+                    isCandidate
+                      ? (event) => {
+                          event.stopPropagation()
+                          onChooseUnion?.(union.id)
+                        }
+                      : undefined
+                  }
+                />
+              </g>
+            )
+          })}
         </g>
 
         <g>
@@ -166,7 +220,12 @@ export default function GraphCanvas({
                 isDimmed={dimmed && !highlightedPersons.has(person.id)}
                 relateIndex={relateSelection?.indexOf(person.id) ?? -1}
                 isExpanding={expandingId === person.id}
+                isActive={activeId === person.id}
+                hasParents={hasParents(layout, person.id)}
                 onSelect={() => !isDragging() && onSelect(person)}
+                onActivate={() => !isDragging() && onActivate?.(person.id)}
+                onAddRelative={(context) => onAddRelative?.(context, person)}
+                onEditYear={() => onEditYear?.(person)}
                 onExpand={(direction) => !isDragging() && onExpand(person, direction)}
                 t={t}
               />
@@ -194,6 +253,11 @@ export default function GraphCanvas({
   )
 }
 
+/** Does this person already hang from a union of birth? Decides the "+ parents" chip. */
+function hasParents(layout, personId) {
+  return (layout.unionsAsChild.get(personId) ?? []).length > 0
+}
+
 function PersonCard({
   person,
   locale,
@@ -203,7 +267,12 @@ function PersonCard({
   isDimmed,
   relateIndex,
   isExpanding,
+  isActive,
+  hasParents: personHasParents,
   onSelect,
+  onActivate,
+  onAddRelative,
+  onEditYear,
   onExpand,
   t,
 }) {
@@ -216,8 +285,14 @@ function PersonCard({
     <g
       transform={`translate(${person.x} ${person.y})`}
       opacity={isDimmed ? 0.3 : 1}
-      className="cursor-pointer"
-      onClick={onSelect}
+      className="cursor-pointer group"
+      onClick={(event) => {
+        event.stopPropagation()
+        // One tap reveals the add-buttons and selects; the affordances handle their own
+        // clicks. On desktop hover shows them too, via CSS.
+        onActivate?.()
+        onSelect?.()
+      }}
     >
       <rect
         width={CARD_W}
@@ -242,9 +317,19 @@ function PersonCard({
       <text x={16} y={39} className="fill-[var(--muted)]" style={{ fontSize: 11 }}>
         {truncate(secondary || person.house_name || '', 26)}
       </text>
-      <text x={16} y={54} className="fill-[var(--muted)]" style={{ fontSize: 11 }}>
-        {person.lifespan_compact || person.birth_display}
-      </text>
+      <g
+        className="cursor-text"
+        onClick={(event) => {
+          event.stopPropagation()
+          onEditYear?.()
+        }}
+      >
+        <title>{t('edit.editYears')}</title>
+        <rect x={12} y={42} width={CARD_W - 40} height={18} rx={4} fill="transparent" />
+        <text x={16} y={54} className="fill-[var(--muted)]" style={{ fontSize: 11 }}>
+          {person.lifespan_compact || person.birth_display || '?'}
+        </text>
+      </g>
 
       {relateIndex >= 0 && (
         <g transform={`translate(${CARD_W - 26} 8)`}>
@@ -252,6 +337,17 @@ function PersonCard({
           <text x={9} y={13} textAnchor="middle" fill="#fff" style={{ fontSize: 11, fontWeight: 700 }}>
             {relateIndex === 0 ? 'A' : 'B'}
           </text>
+        </g>
+      )}
+
+      {onAddRelative && (
+        <g className={isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}>
+          <Affordances
+            person={person}
+            hasParents={personHasParents}
+            onAdd={onAddRelative}
+            t={t}
+          />
         </g>
       )}
 

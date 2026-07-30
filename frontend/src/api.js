@@ -41,32 +41,38 @@ function readCookie(name) {
     ?.split('=')[1]
 }
 
-async function post(path, body) {
+async function send(method, path, body) {
   // DRF's SessionAuthentication enforces CSRF on unsafe methods. A client that has only
   // ever done GETs may not hold the cookie yet, so ask for one first.
   if (!readCookie('csrftoken')) await get('/csrf/')
 
   const response = await fetch(new URL(`${BASE}${path}`, window.location.origin), {
-    method: 'POST',
+    method,
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-CSRFToken': readCookie('csrftoken') ?? '',
     },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
 
   if (response.status === 403 || response.status === 401) throw new NotAuthenticated()
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     const error = new Error(`${response.status} ${response.statusText}`)
-    // Surface the field-level message DRF returns rather than a bare status code.
+    error.status = response.status
+    // The server's structured refusals — "which marriage?", "already has parents",
+    // "no longer undoable" — are answers the UI must act on, not just messages.
+    error.code = payload?.code ?? null
+    error.unions = payload?.unions ?? null
     error.detail = firstMessage(payload)
     throw error
   }
   return payload
 }
+
+const post = (path, body) => send('POST', path, body)
 
 function firstMessage(payload) {
   if (!payload) return null
@@ -90,3 +96,17 @@ export const fetchRelation = (a, b) => get('/relate/', { a, b })
 
 /** Create a household; returns the created subgraph, neighborhood-shaped, for merging. */
 export const quickAdd = (payload) => post('/quick-add/', payload)
+
+/**
+ * Create one person already wired into a relationship — what a canvas affordance does.
+ *
+ * `context` is partner_of | child_of_person | child_of_union | parent_of. The server owns
+ * what each means, including refusing to guess which marriage a child belongs to; a 409
+ * with `code: "ambiguous_union"` carries the candidate unions for the UI to ask about.
+ */
+export const createPerson = (payload) => post('/persons/', payload)
+
+export const updatePerson = (id, fields) => send('PATCH', `/persons/${id}/`, fields)
+
+/** Undo a creation. 409 `not_provisional` means the node has grown edges of its own. */
+export const deletePerson = (id) => send('DELETE', `/persons/${id}/`)

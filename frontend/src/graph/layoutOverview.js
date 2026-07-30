@@ -265,6 +265,33 @@ export function fitTransform(bounds, viewport, padding = 80) {
  * Without this a fitted overview of a large archive draws sub-pixel dots — technically on
  * screen, visually blank.
  */
+/**
+ * Zoom about a fixed screen point.
+ *
+ * Used by the wheel, by trackpad pinch (ctrlKey+wheel) and by two-finger touch pinch —
+ * all three are the same operation, so they share the maths. The graph point under the
+ * cursor or under the midpoint of the two fingers must not move, which is what makes
+ * zooming feel like handling the sheet rather than moving a camera.
+ */
+export function zoomAbout(transform, screenPoint, nextScale) {
+  const k = Math.min(MAX_SCALE, Math.max(FIT_MIN_SCALE, nextScale))
+  return {
+    k,
+    x: screenPoint.x - ((screenPoint.x - transform.x) / transform.k) * k,
+    y: screenPoint.y - ((screenPoint.y - transform.y) / transform.k) * k,
+  }
+}
+
+/** Screen coordinates of a graph point, for positioning HTML overlays over the SVG. */
+export function toScreen(transform, point) {
+  return { x: point.x * transform.k + transform.x, y: point.y * transform.k + transform.y }
+}
+
+/** The reverse: where in the graph a screen point lands. */
+export function toGraph(transform, point) {
+  return { x: (point.x - transform.x) / transform.k, y: (point.y - transform.y) / transform.k }
+}
+
 export function dotRadius(scale, base = 5) {
   // Clamping the divisor rather than capping the result: a dot then renders at a constant
   // `base` screen pixels everywhere down to the fit floor, and shrinks normally when

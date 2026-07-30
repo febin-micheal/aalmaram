@@ -7,7 +7,11 @@ import QuickAddDialog from './components/QuickAddDialog.jsx'
 import RelateBar from './components/RelateBar.jsx'
 import SidePanel from './components/SidePanel.jsx'
 import Toolbar from './components/Toolbar.jsx'
+import InlineInput from './components/InlineInput.jsx'
+import Toast from './components/Toast.jsx'
 import { findLinkingUnion } from './graph/layout.js'
+import { toScreen } from './graph/layoutOverview.js'
+import { useEditor } from './graph/useEditor.js'
 import { useGraph } from './graph/useGraph.js'
 import { useOverview } from './graph/useOverview.js'
 import { AVAILABLE_LOCALES, detectLocale, setLocale, translatorFor } from './i18n/index.js'
@@ -31,7 +35,12 @@ export default function App() {
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [authNeeded, setAuthNeeded] = useState(false)
   const [failure, setFailure] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [activeId, setActiveId] = useState(null)
+  const [yearEditFor, setYearEditFor] = useState(null)
   const controls = useRef({})
+  // Where the anchor sat on screen before a re-layout, so it can be put back.
+  const anchorScreen = useRef(null)
 
   const t = translatorFor(locale)
   const overview = useOverview()
@@ -40,6 +49,8 @@ export default function App() {
 
   const mode = centerId ? 'detail' : 'overview'
   const layout = centerId ? graph.layout : overview.layout
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
 
   useEffect(() => {
     document.documentElement.lang = locale
@@ -55,6 +66,97 @@ export default function App() {
     overview.load().catch(handleError)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const showToast = useCallback((message, tone = 'error') => {
+    setToast({ message, tone, at: Date.now() })
+  }, [])
+
+  /**
+   * Adding a node re-runs the layout, which can shift everything sideways. Remember where
+   * the anchor was on screen before the change and pan by the difference afterwards, so
+   * the person you were working on does not move out from under your cursor.
+   */
+  const rememberAnchor = useCallback((personId) => {
+    const person = layoutRef.current?.persons.get(personId)
+    anchorScreen.current = person && controls.current.toScreenPoint
+      ? { id: personId, screen: controls.current.toScreenPoint({ x: person.x, y: person.y }) }
+      : null
+  }, [])
+
+  const editor = useEditor({
+    onApplied: (created) => {
+      graph.applyCreated(created, {
+        context: editingContext.current?.context,
+        anchorId: editingContext.current?.anchorId,
+      })
+    },
+    onRemoved: (removed) => {
+      graph.removeNodes(removed)
+      setToast({ message: t('edit.undone'), tone: 'ok', at: Date.now() })
+    },
+    onError: (message) => showToast(message),
+  })
+  const editingContext = useRef(null)
+
+  // After any layout change, put the anchor back where it was on screen.
+  useEffect(() => {
+    const remembered = anchorScreen.current
+    if (!remembered || !layout) return
+    const person = layout.persons.get(remembered.id)
+    if (!person || !controls.current.toScreenPoint) return
+    const now = controls.current.toScreenPoint({ x: person.x, y: person.y })
+    const dx = remembered.screen.x - now.x
+    const dy = remembered.screen.y - now.y
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) controls.current.panBy?.(dx, dy)
+    anchorScreen.current = null
+  }, [layout])
+
+  const startAdd = useCallback(
+    (context, person) => {
+      if (mode === 'overview') return // editing happens in the detail view
+      editingContext.current = { context, anchorId: person.id }
+      rememberAnchor(person.id)
+      editor.begin(context, layoutRef.current?.persons.get(person.id) ?? person)
+      setActiveId(person.id)
+    },
+    [editor, mode, rememberAnchor],
+  )
+
+  const commitDraft = useCallback(
+    async (name, options) => {
+      const anchorId = editingContext.current?.anchorId
+      if (anchorId) rememberAnchor(anchorId)
+      const created = await editor.commit(name, options)
+      if (created) {
+        showToast(t('edit.added', { name: created.person.display_name }), 'ok')
+        overview.refresh().catch(() => {})
+      }
+    },
+    [editor, rememberAnchor, showToast, t, overview],
+  )
+
+  const chooseUnion = useCallback(
+    async (unionId) => {
+      const created = await editor.chooseUnion(unionId)
+      if (created) {
+        showToast(t('edit.added', { name: created.person.display_name }), 'ok')
+        overview.refresh().catch(() => {})
+      }
+    },
+    [editor, showToast, t, overview],
+  )
+
+  // Ctrl/Cmd+Z undoes the last creation, anywhere on the page.
+  useEffect(() => {
+    const onKey = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        editor.undo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editor])
 
   const openPerson = useCallback(
     async (person) => {
@@ -146,6 +248,25 @@ export default function App() {
       [...common.path_subject, ...common.path_other].every((step) => layout.persons.has(step.id)),
     )
   }, [relate.result, layout])
+
+  /**
+   * Where to put the inline input, in screen pixels.
+   *
+   * Clamped into the viewport: on a narrow phone the natural position for "+ partner" can
+   * fall off the right edge, and an input you cannot see is worse than one slightly out of
+   * place.
+   */
+  const draftScreen = useMemo(() => {
+    const position = editor.draft?.position
+    const transform = controls.current.transform
+    if (!position || !transform) return { x: 24, y: 96 }
+    const point = toScreen(transform, position)
+    const width = window.innerWidth || 390
+    return {
+      x: Math.max(8, Math.min(point.x, width - 260)),
+      y: Math.max(56, point.y),
+    }
+  }, [editor.draft, renderMode, layout])
 
   const centerOnCommonAncestor = async () => {
     const common = relate.result?.common_ancestors?.[0]
@@ -272,11 +393,55 @@ export default function App() {
           onSelect={onNodeClick}
           onExpand={expand}
           onRenderModeChange={setRenderMode}
+          editor={editor}
+          activeId={activeId}
+          onActivate={setActiveId}
+          onAddRelative={mode === 'detail' && !relate.active ? startAdd : undefined}
+          onChooseUnion={chooseUnion}
+          onEditYear={(person) => setYearEditFor(person)}
           registerControls={(api) => {
             controls.current = api
           }}
           t={t}
         />
+
+        {editor.mode === 'placing' && editor.draft && (
+          <InlineInput
+            key={`${editor.draft.targetId}-${editor.draft.unionId ?? 'new'}-${editor.draft.position.x}`}
+            screenX={draftScreen.x}
+            screenY={draftScreen.y}
+            busy={editor.busy}
+            onCommit={commitDraft}
+            onCancel={editor.cancel}
+            t={t}
+          />
+        )}
+
+        {editor.mode === 'choosing-union' && (
+          <p className="absolute left-1/2 top-4 z-40 -translate-x-1/2 rounded-lg bg-[var(--accent-strong)] px-4 py-2 text-sm text-white shadow-xl">
+            {t('edit.chooseUnion')}
+            <button
+              type="button"
+              onClick={editor.cancel}
+              className="ml-3 rounded border border-white/40 px-2 py-0.5"
+            >
+              {t('quickAdd.cancel')}
+            </button>
+          </p>
+        )}
+
+        {yearEditFor && (
+          <YearEditor
+            person={yearEditFor}
+            t={t}
+            onCancel={() => setYearEditFor(null)}
+            onSave={async (value) => {
+              const person = yearEditFor
+              setYearEditFor(null)
+              await editor.editPerson(person, { birth: value })
+            }}
+          />
+        )}
 
         {renderMode === 'dots' && (
           <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-[var(--card-bg)] px-4 py-1.5 text-xs opacity-80">
@@ -294,6 +459,7 @@ export default function App() {
             onSetCenter={openPerson}
             onRelateFrom={(person) => setRelate({ ...IDLE_RELATE, active: true, a: person })}
             onAddHousehold={openQuickAdd}
+            onEdit={(person, fields) => editor.editPerson(person, fields)}
             onSelect={(person) => setSelectedId(person.id)}
           />
         )}
@@ -311,6 +477,13 @@ export default function App() {
         }}
       />
 
+      <Toast
+        toast={toast}
+        onDismiss={() => setToast(null)}
+        onUndo={editor.canUndo ? () => { setToast(null); editor.undo() } : undefined}
+        t={t}
+      />
+
       {quickAddOpen && (
         <QuickAddDialog
           t={t}
@@ -323,6 +496,53 @@ export default function App() {
           onCreated={onHouseholdCreated}
         />
       )}
+    </div>
+  )
+}
+
+
+/**
+ * A one-field editor for the year chip.
+ *
+ * Uncertainty is the point: "1938", "1930s", "c. 1940" and "?" are all valid answers, and
+ * the placeholder says so rather than demanding a number.
+ */
+function YearEditor({ person, t, onSave, onCancel }) {
+  const [value, setValue] = useState(person.lifespan_compact?.split(' ')[0] ?? '')
+
+  return (
+    <div
+      className="absolute inset-0 z-40 flex items-start justify-center bg-black/20 pt-24"
+      onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSave(value)
+        }}
+        className="w-72 space-y-2 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4 shadow-2xl"
+      >
+        <label className="block text-sm font-medium">
+          {t('edit.birthOf', { name: person.display_name })}
+        </label>
+        <input
+          autoFocus
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+          placeholder={t('edit.yearPlaceholder')}
+          className="w-full rounded-lg border border-[var(--card-border)] bg-transparent px-3 py-2"
+        />
+        <p className="text-xs opacity-60">{t('edit.yearHelp')}</p>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[var(--card-border)] px-3 py-1.5 text-sm">
+            {t('quickAdd.cancel')}
+          </button>
+          <button type="submit" className="rounded-lg bg-[var(--accent-strong)] px-3 py-1.5 text-sm font-medium text-white">
+            {t('quickAdd.save')}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

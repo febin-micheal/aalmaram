@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { accentFor, personName, personSecondaryName } from '../graph/person.js'
 
 /**
@@ -13,8 +15,10 @@ export default function SidePanel({
   onSetCenter,
   onRelateFrom,
   onAddHousehold,
+  onEdit,
   onSelect,
 }) {
+  const [editing, setEditing] = useState(false)
   if (!person) return null
 
   const ego = egoFrom(layout, person.id)
@@ -39,6 +43,27 @@ export default function SidePanel({
       </div>
 
       <div className="h-1 w-16 rounded" style={{ background: accentFor(person) }} aria-hidden="true" />
+
+      {editing ? (
+        <InlineFields
+          key={person.id}
+          person={person}
+          t={t}
+          onCancel={() => setEditing(false)}
+          onSave={async (fields) => {
+            setEditing(false)
+            await onEdit?.(person, fields)
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="self-start rounded-lg border border-[var(--card-border)] px-3 py-1.5 text-sm"
+        >
+          {t('edit.editDetails')}
+        </button>
+      )}
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {person.house_name && (
@@ -184,4 +209,75 @@ function egoFrom(layout, personId) {
     partners: hydrate([...partners].map((id) => [id, null])),
     children: hydrate(children.entries()),
   }
+}
+
+
+/**
+ * Inline editing of the fields a card shows.
+ *
+ * Years are free text on purpose — "1930s" and "?" are answers, and forcing a number here
+ * would push people into inventing one. The server parses and rejects what it cannot read.
+ */
+function InlineFields({ person, t, onSave, onCancel }) {
+  const [fields, setFields] = useState({
+    name_en: person.name_en ?? '',
+    name_ml: person.name_ml ?? '',
+    gender: person.gender ?? 'unknown',
+    birth: person.birth_display === '?' ? '' : (person.birth_display ?? ''),
+  })
+  const set = (key) => (event) => setFields((f) => ({ ...f, [key]: event.target.value }))
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSave(fields)
+      }}
+      className="space-y-2 rounded-lg border border-[var(--card-border)] p-3"
+    >
+      <Labelled label={t('edit.nameEn')}>
+        <input value={fields.name_en} onChange={set('name_en')} className={FIELD} autoFocus />
+      </Labelled>
+      <Labelled label={t('edit.nameMl')}>
+        <input value={fields.name_ml} onChange={set('name_ml')} className={FIELD} lang="ml" />
+      </Labelled>
+      <Labelled label={t('quickAdd.gender')}>
+        <select value={fields.gender} onChange={set('gender')} className={FIELD}>
+          <option value="male">{t('gender.male')}</option>
+          <option value="female">{t('gender.female')}</option>
+          <option value="other">{t('gender.other')}</option>
+          <option value="unknown">{t('gender.unknown')}</option>
+        </select>
+      </Labelled>
+      <Labelled label={t('panel.born')} help={t('edit.yearHelp')}>
+        <input
+          value={fields.birth}
+          onChange={set('birth')}
+          placeholder={t('edit.yearPlaceholder')}
+          className={FIELD}
+        />
+      </Labelled>
+      <div className="flex justify-end gap-2 pt-1">
+        <button type="button" onClick={onCancel} className="rounded border border-[var(--card-border)] px-3 py-1 text-sm">
+          {t('quickAdd.cancel')}
+        </button>
+        <button type="submit" className="rounded bg-[var(--accent-strong)] px-3 py-1 text-sm font-medium text-white">
+          {t('quickAdd.save')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+const FIELD =
+  'w-full rounded border border-[var(--card-border)] bg-transparent px-2 py-1.5 text-sm outline-none focus:border-[var(--accent-strong)]'
+
+function Labelled({ label, help, children }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium opacity-70">{label}</span>
+      {children}
+      {help && <span className="block text-[11px] opacity-50">{help}</span>}
+    </label>
+  )
 }

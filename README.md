@@ -7,10 +7,10 @@ discovers common ancestors across branches.
 
 Built with Django + PostgreSQL + React. Bilingual (Malayalam/English) by design.
 
-Status: **Phase 1.6 complete** — data model, graph traversal library, admin tree view, a
-visual graph explorer that lands on the whole archive, household entry from the graph, and
-a backup/restore/reset workflow for real data. The swipe deck and magic-link invites are
-Phase 2. See [CLAUDE.md](CLAUDE.md) for the full architecture spec and
+Status: **Phase 1.75 complete** — data model, graph traversal library, admin tree view, a
+visual explorer that lands on the whole archive, **direct-manipulation editing on the
+canvas**, and a backup/restore/reset workflow for real data. The swipe deck and magic-link
+invites are Phase 2. See [CLAUDE.md](CLAUDE.md) for the full architecture spec and
 [DECISIONS.md](DECISIONS.md) for the judgment calls made along the way.
 
 License: AGPL-3.0
@@ -85,6 +85,56 @@ The seeded database these refer to is dumped at
 `make restore FILE=…` whenever you want to retake these, without disturbing real data.
 
 </details>
+
+## Editing on the canvas
+
+Adding people happens **on the graph**. Hover a card (or tap it on a phone) and three
+buttons appear where the relationship goes: **+ partner** right, **+ child** below,
+**+ parents** above. Click one, type a name, press Enter. The quick-add form is still there
+for bulk entry.
+
+| Key | Does |
+| --- | --- |
+| `Enter` | commit the name |
+| `Tab` | commit **and open the next sibling** on the same union |
+| `Esc` | cancel |
+| `m` / `f` | set gender (while the name box is still empty) |
+| `Ctrl`/`Cmd` + `Z` | undo the last addition |
+
+Years accept uncertainty as typed — `1938`, `1930s`, `c. 1940`, `before 1950`, `?` — and
+anything unreadable is refused rather than guessed at. Click the year on a card to edit it.
+
+**Two behaviours worth knowing.** Adding a child to someone with **two marriages** does not
+guess: the app highlights both union dots and asks which one, and sends nothing until you
+tap. Adding a child to someone with **no union** quietly creates a single-partner one,
+because an unknown second parent is a normal record.
+
+### Click-script
+
+Enter this three-generation family using **only the canvas** — no form. It exercises a
+second marriage, an unknown parent, the Tab sibling flow, an undo and an inline rename.
+
+| # | Do | Expect |
+| --- | --- | --- |
+| 1 | `make reset-db` (type `YES`), reload http://localhost:5173/ | The **"No family recorded yet"** screen |
+| 2 | Click **Add the first household**, enter partners `Ittira` / `Mariam`, one child `Chacko`, save | The graph opens on that household |
+| 3 | Hover **Chacko** → click **+ partner** (right), type `Annamma`, `f`, Enter | Annamma appears beside him with a union dot between them |
+| 4 | Hover **Chacko** → click **+ child** (below), type `Thomas`, `m`, then **Tab** | Thomas commits and a *new empty box* opens immediately for the next sibling |
+| 5 | Type `Rosy`, `f`, Tab → `Mini`, `f`, Tab → `Jose`, `m`, **Enter** | Four siblings, left to right in the order typed, all hanging off the one union |
+| 6 | Hover **Chacko** → **+ partner** again, type `Saramma`, `f`, Enter | A **second union dot** beside the first — the remarriage |
+| 7 | Hover **Chacko** → **+ child** | The two union dots highlight and a bar asks *"Which marriage?"*. **Nothing is created yet** |
+| 8 | Tap the **second** (right-hand) union dot, type `Joseph`, `m`, Enter | Joseph hangs off the second marriage — a half-sibling, drawn under its own union |
+| 9 | Hover **Mariam** → **+ child**, type `Varkey`, `m`, Enter | Varkey attaches via a **single-partner union** (father unknown) |
+| 10 | Hover **Ittira** (the oldest, who has no parents recorded) → click **+ parents** (above), type `Kunjachan`, `m`, Enter | A third generation appears above, with Ittira now hanging from a new union |
+| 10b | Hover **Chacko** → look above his card | **No + parents button** — it is hidden because he already hangs from Ittira's union. A second set of parents is not something this model can express, so it is not offered |
+| 11 | Click **Jose**'s year chip, type `1970`, save | The card shows `1970` |
+| 12 | Click **Jose**, then **Edit details** in the side panel, change the name to `Joseph K`, save | The card renames in place |
+| 13 | Add one more child anywhere, then press **Ctrl+Z** | The node disappears and a toast says *Undone* |
+| 14 | Try Ctrl+Z again | Nothing further is undone — undo is one step |
+| 15 | On a phone: tap a card | The three buttons appear (tap elsewhere dismisses); pinch to zoom, double-tap to zoom in |
+
+You should end with 8+ people across three generations, one second marriage, one unknown
+parent, and four siblings in recorded birth order — entered without opening a form.
 
 ## Using with real data
 

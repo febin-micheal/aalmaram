@@ -78,5 +78,21 @@
   "gender.male": "Male",
   "gender.female": "Female",
   "gender.other": "Other",
-  "gender.unknown": "Unknown"
+  "gender.unknown": "Unknown",
+  "edit.addPartner": "Add partner",
+  "edit.addChild": "Add child",
+  "edit.addParents": "Add parents",
+  "edit.namePlaceholder": "Name, then Enter",
+  "edit.hint": "Enter to add · Tab for a sibling · Esc to cancel · m/f for gender",
+  "edit.chooseUnion": "Which marriage? Tap the join between the parents.",
+  "edit.added": "Added {name}",
+  "edit.undone": "Undone",
+  "edit.undo": "Undo",
+  "edit.editYears": "Edit years",
+  "edit.editDetails": "Edit details",
+  "edit.birthOf": "Born — {name}",
+  "edit.yearPlaceholder": "1938, 1930s, c. 1940, ?",
+  "edit.yearHelp": "A decade or a guess is fine. Leave blank or type ? if unknown.",
+  "edit.nameEn": "Name (English)",
+  "edit.nameMl": "Name (Malayalam)"
 }

@@ -78,5 +78,21 @@
   "gender.male": "പുരുഷൻ",
   "gender.female": "സ്ത്രീ",
   "gender.other": "മറ്റുള്ളവ",
-  "gender.unknown": "അറിയില്ല"
+  "gender.unknown": "അറിയില്ല",
+  "edit.addPartner": "പങ്കാളിയെ ചേർക്കുക",
+  "edit.addChild": "മകനെ/മകളെ ചേർക്കുക",
+  "edit.addParents": "മാതാപിതാക്കളെ ചേർക്കുക",
+  "edit.namePlaceholder": "പേര്, പിന്നെ Enter",
+  "edit.hint": "Enter ചേർക്കാൻ · Tab സഹോദരന് · Esc റദ്ദാക്കാൻ · m/f ലിംഗം",
+  "edit.chooseUnion": "ഏത് വിവാഹം? മാതാപിതാക്കൾക്കിടയിലെ കണ്ണി തൊടുക.",
+  "edit.added": "{name} ചേർത്തു",
+  "edit.undone": "പഴയപടിയാക്കി",
+  "edit.undo": "പഴയപടി",
+  "edit.editYears": "വർഷം തിരുത്തുക",
+  "edit.editDetails": "വിവരങ്ങൾ തിരുത്തുക",
+  "edit.birthOf": "ജനനം — {name}",
+  "edit.yearPlaceholder": "1938, 1930s, c. 1940, ?",
+  "edit.yearHelp": "ദശകമോ ഏകദേശമോ മതി. അറിയില്ലെങ്കിൽ ? എന്നെഴുതുക.",
+  "edit.nameEn": "പേര് (ഇംഗ്ലീഷ്)",
+  "edit.nameMl": "പേര് (മലയാളം)"
 }

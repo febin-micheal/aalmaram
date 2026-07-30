@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { MAX_SCALE, MIN_SCALE, fitTransform } from './layoutOverview.js'
+import { MAX_SCALE, MIN_SCALE, fitTransform, zoomAbout } from './layoutOverview.js'
+
+/** Two fingers closer than this are treated as one — a stray thumb should not zoom. */
+const MIN_PINCH_DISTANCE = 24
 
 /**
  * Pan and zoom over a single SVG transform group.
@@ -16,6 +19,10 @@ export function usePanZoom(svgRef) {
   // calling getBoundingClientRect while rendering thrashes layout.
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const dragging = useRef(null)
+  // Live pointers, so two fingers can be told from one.
+  const pointers = useRef(new Map())
+  const pinch = useRef(null)
+  const lastTap = useRef(0)
 
   useEffect(() => {
     const svg = svgRef.current
@@ -55,6 +62,11 @@ export function usePanZoom(svgRef) {
     [svgRef],
   )
 
+  /** Shift the view by a screen delta — used to hold an anchor still after a re-layout. */
+  const panBy = useCallback((dx, dy) => {
+    setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+  }, [])
+
   const zoomBy = useCallback(
     (factor) => {
       const svg = svgRef.current
@@ -82,26 +94,70 @@ export function usePanZoom(svgRef) {
     const onWheel = (event) => {
       event.preventDefault()
       const rect = svg.getBoundingClientRect()
-      const px = event.clientX - rect.left
-      const py = event.clientY - rect.top
-      setTransform((t) => {
-        const k = clamp(t.k * Math.pow(0.999, event.deltaY))
-        // Anchor the zoom on the pointer: the graph point under the cursor stays put.
-        return { k, x: px - ((px - t.x) / t.k) * k, y: py - ((py - t.y) / t.k) * k }
-      })
+      const at = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      // A trackpad pinch arrives as a wheel event with ctrlKey set, and needs a much
+      // stronger response than a scroll wheel or it feels stuck.
+      const factor = event.ctrlKey ? Math.pow(0.99, event.deltaY) : Math.pow(0.999, event.deltaY)
+      setTransform((t) => zoomAbout(t, at, t.k * factor))
     }
 
     svg.addEventListener('wheel', onWheel, { passive: false })
     return () => svg.removeEventListener('wheel', onWheel)
   }, [svgRef])
 
+  const localPoint = (event) => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }
+  }
+
   const onPointerDown = (event) => {
-    if (event.button !== 0) return
-    dragging.current = { startX: event.clientX, startY: event.clientY, moved: false }
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     event.currentTarget.setPointerCapture?.(event.pointerId)
+
+    if (pointers.current.size === 2) {
+      // Second finger down: stop panning, start pinching.
+      dragging.current = null
+      const [a, b] = [...pointers.current.values()]
+      pinch.current = { distance: distanceBetween(a, b), scale: transform.k }
+      return
+    }
+
+    dragging.current = { startX: event.clientX, startY: event.clientY, moved: false }
+
+    if (event.pointerType === 'touch') {
+      const now = Date.now()
+      if (now - lastTap.current < 300) {
+        // Double-tap zooms one step, about the tapped point.
+        const at = localPoint(event)
+        setTransform((t) => zoomAbout(t, at, t.k * 1.8))
+        lastTap.current = 0
+      } else {
+        lastTap.current = now
+      }
+    }
   }
 
   const onPointerMove = (event) => {
+    if (pointers.current.has(event.pointerId)) {
+      pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    }
+
+    if (pointers.current.size === 2 && pinch.current) {
+      const [a, b] = [...pointers.current.values()]
+      const distance = distanceBetween(a, b)
+      if (distance < MIN_PINCH_DISTANCE) return
+      const rect = svgRef.current?.getBoundingClientRect()
+      // Anchor on the midpoint between the fingers, so the graph stays under them.
+      const centre = {
+        x: (a.x + b.x) / 2 - (rect?.left ?? 0),
+        y: (a.y + b.y) / 2 - (rect?.top ?? 0),
+      }
+      const ratio = distance / pinch.current.distance
+      setTransform((t) => zoomAbout(t, centre, pinch.current.scale * ratio))
+      return
+    }
+
     const drag = dragging.current
     if (!drag) return
     const dx = event.clientX - drag.startX
@@ -114,7 +170,9 @@ export function usePanZoom(svgRef) {
 
   const onPointerUp = (event) => {
     event.currentTarget.releasePointerCapture?.(event.pointerId)
-    dragging.current = null
+    pointers.current.delete(event.pointerId)
+    if (pointers.current.size < 2) pinch.current = null
+    if (pointers.current.size === 0) dragging.current = null
   }
 
   /** True while a drag is in progress, so a pan is never mistaken for a node click. */
@@ -126,9 +184,14 @@ export function usePanZoom(svgRef) {
     fit,
     centerOn,
     zoomBy,
+    panBy,
     isDragging,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerLeave: onPointerUp },
   }
+}
+
+function distanceBetween(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
 function clamp(k) {

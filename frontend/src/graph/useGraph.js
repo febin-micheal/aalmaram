@@ -101,6 +101,62 @@ export function useGraph() {
     [],
   )
 
+  /**
+   * Fold a just-created person into the loaded graph.
+   *
+   * The generation comes from the anchor rather than the server: the create response has
+   * no centre to be relative to, but the canvas does, and putting the new node one row
+   * below (or above, or level with) the person it was added to is what makes it appear
+   * where the user clicked.
+   */
+  const applyCreated = useCallback((created, { context, anchorId } = {}) => {
+    setGraph((current) => {
+      const persons = new Map(current.persons.map((p) => [p.id, p]))
+      const anchor = anchorId ? persons.get(anchorId) : null
+      const base = anchor?.generation ?? 0
+      const offset = context === 'parent_of' ? -1 : context === 'partner_of' ? 0 : 1
+
+      const incoming = created.person
+      const existing = persons.get(incoming.id)
+      persons.set(incoming.id, {
+        ...(existing ?? {}),
+        ...incoming,
+        generation: existing?.generation ?? base + offset,
+      })
+
+      const unions = new Map(current.unions.map((u) => [u.id, u]))
+      for (const union of created.created_unions ?? []) {
+        if (!unions.has(union.id)) {
+          unions.set(union.id, {
+            ...union,
+            generation: context === 'parent_of' ? base - 1 : base,
+          })
+        }
+      }
+
+      const key = (m) => `${m.union}:${m.person}:${m.role}`
+      const memberships = new Map(current.memberships.map((m) => [key(m), m]))
+      for (const membership of created.memberships ?? []) memberships.set(key(membership), membership)
+
+      return {
+        persons: [...persons.values()],
+        unions: [...unions.values()],
+        memberships: [...memberships.values()],
+      }
+    })
+  }, [])
+
+  /** Take a node back out — the rollback path and the undo path are the same. */
+  const removeNodes = useCallback(({ person, unions = [] }) => {
+    setGraph((current) => ({
+      persons: current.persons.filter((p) => p.id !== person),
+      unions: current.unions.filter((u) => !unions.includes(u.id)),
+      memberships: current.memberships.filter(
+        (m) => m.person !== person && !unions.includes(m.union),
+      ),
+    }))
+  }, [])
+
   const reset = useCallback(() => {
     setGraph(EMPTY)
     setCenterId(null)
@@ -112,5 +168,17 @@ export function useGraph() {
     [graph, centerId],
   )
 
-  return { graph, layout, centerId, loading, expanding, error, loadCenter, expand, reset }
+  return {
+    graph,
+    layout,
+    centerId,
+    loading,
+    expanding,
+    error,
+    loadCenter,
+    expand,
+    reset,
+    applyCreated,
+    removeNodes,
+  }
 }

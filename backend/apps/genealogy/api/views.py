@@ -14,6 +14,7 @@ anyone who is not staff.
 import uuid
 
 from django.contrib.postgres.search import TrigramSimilarity
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q
 from django.db.models.functions import Greatest
 from django.utils.decorators import method_decorator
@@ -24,12 +25,21 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.genealogy.graph import build_neighborhood, build_overview, describe_relationship
-from apps.genealogy.households import create_family_unit
-from apps.genealogy.models import Person, Role
+from apps.genealogy.households import (
+    AlreadyHasParents,
+    AmbiguousUnion,
+    NotProvisional,
+    create_family_unit,
+    create_person_in_context,
+    delete_provisional_person,
+)
+from apps.genealogy.models import Person, Role, Union
+from apps.genealogy.year_parsing import YearParseError
 
 from .permissions import IsStaff
 from .serializers import (
     CommonAncestorSerializer,
+    CreatePersonSerializer,
     MembershipEdgeSerializer,
     OverviewPersonSerializer,
     OverviewUnionSerializer,
@@ -37,7 +47,29 @@ from .serializers import (
     PersonSerializer,
     QuickAddSerializer,
     UnionNodeSerializer,
+    UpdatePersonSerializer,
 )
+
+
+def _created_payload(result) -> dict:
+    """What the canvas needs to draw a newly created node without refetching.
+
+    Deliberately the same node/edge vocabulary as /neighborhood/ and /overview/, so the
+    client has exactly one merge path for new data however it arrived.
+    """
+    person = result["person"]
+    person.generation = 0
+    person.hidden_up = 0
+    person.hidden_down = 0
+    for union in result["created_unions"]:
+        union.generation = 0
+    return {
+        "person": PersonNodeSerializer(person).data,
+        "union": str(result["union"].id) if result["union"] else None,
+        "created_unions": UnionNodeSerializer(result["created_unions"], many=True).data,
+        "memberships": MembershipEdgeSerializer(result["memberships"], many=True).data,
+    }
+
 
 #: Ceiling on how much of the graph one request may pull. The explorer expands
 #: incrementally, so a request never needs more than a few generations either way.
@@ -46,7 +78,7 @@ MAX_GENERATIONS = 4
 SIMILARITY_FLOOR = 0.15
 
 
-class PersonViewSet(viewsets.ReadOnlyModelViewSet):
+class PersonViewSet(viewsets.ModelViewSet):
     permission_classes = [IsStaff]
     serializer_class = PersonSerializer
     queryset = Person.objects.canonical()
@@ -77,6 +109,83 @@ class PersonViewSet(viewsets.ReadOnlyModelViewSet):
             )
             .order_by("-similarity", "name_en", "name_ml")
         )
+
+    # --- editing ---------------------------------------------------------
+    # The canvas is the primary editor, so these three exist to serve direct manipulation:
+    # create a person already wired into a relationship, edit a field inline, and undo a
+    # creation. Anything broader belongs in the admin.
+
+    def create(self, request):
+        """Create a person in a named relationship — what a "+ partner/child/parents" click does."""
+        serializer = CreatePersonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        target = Person.objects.filter(pk=data["target"]).first() if data.get("target") else None
+        union = Union.objects.filter(pk=data["union"]).first() if data.get("union") else None
+
+        try:
+            result = create_person_in_context(
+                context=data["context"],
+                target=target,
+                union=union,
+                name_en=data.get("name_en", ""),
+                name_ml=data.get("name_ml", ""),
+                gender=data.get("gender", "unknown"),
+                birth=data.get("birth"),
+                house_name=data.get("house_name", ""),
+                relation_type=data.get("relation_type", "biological"),
+                user=request.user,
+            )
+        except AmbiguousUnion as error:
+            # Not an error the user made — a question only they can answer. 409 with the
+            # candidates so the canvas can highlight those union dots and ask.
+            return Response(
+                {
+                    "detail": str(error),
+                    "code": "ambiguous_union",
+                    "unions": [str(uid) for uid in error.union_ids],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except AlreadyHasParents as error:
+            return Response(
+                {"detail": str(error), "code": "already_has_parents"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except (YearParseError, ValueError) as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(_created_payload(result), status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, pk=None):
+        """Inline field edit from a card or the side panel."""
+        person = self.get_object()
+        serializer = UpdatePersonSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        fields = serializer.to_model_fields()
+        for key, value in fields.items():
+            setattr(person, key, value)
+        try:
+            person.full_clean(exclude=[f.name for f in Person._meta.fields if f.name not in fields])
+        except DjangoValidationError as error:
+            return Response({"detail": error.message_dict}, status=status.HTTP_400_BAD_REQUEST)
+        person.save(update_fields=[*fields.keys(), "updated_at"])
+
+        return Response(PersonSerializer(person).data)
+
+    def destroy(self, request, pk=None):
+        """Undo a just-created node. Refuses once it has acquired edges of its own."""
+        person = self.get_object()
+        try:
+            removed = delete_provisional_person(person)
+        except NotProvisional as error:
+            return Response(
+                {"detail": str(error), "code": "not_provisional"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(removed, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"])
     def suggested(self, request):

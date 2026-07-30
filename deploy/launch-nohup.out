@@ -5,3 +5,25 @@
 2026-07-30T17:41:07Z  full errors -> /home/febin/aalmaram/deploy/launch-errors.log; unknown errors halt after 3 in a row
 2026-07-30T17:41:07Z  
 2026-07-30T17:42:45Z  attempt 1 (1 OCPU / 6 GB): out of capacity  [capacity:1 throttle:0 transport:0]
+2026-07-30T17:49:37Z  attempt 2 (1 OCPU / 6 GB): out of capacity  [capacity:2 throttle:0 transport:0]
+2026-07-30T17:57:37Z  attempt 3: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
+2026-07-30T18:02:02Z  attempt 3 (1 OCPU / 6 GB): out of capacity  [capacity:3 throttle:0 transport:1]
+2026-07-30T18:09:47Z  attempt 4: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
+2026-07-30T18:13:33Z  attempt 4 (1 OCPU / 6 GB): out of capacity  [capacity:4 throttle:0 transport:2]
+2026-07-30T18:20:57Z  attempt 5 (1 OCPU / 6 GB): out of capacity  [capacity:5 throttle:0 transport:2]
+2026-07-30T18:28:28Z  attempt 6 (2 OCPU / 12 GB): out of capacity  [capacity:6 throttle:0 transport:2]
+2026-07-30T18:35:21Z  attempt 7 (1 OCPU / 6 GB): out of capacity  [capacity:7 throttle:0 transport:2]
+2026-07-30T18:43:26Z  attempt 8 (1 OCPU / 6 GB): out of capacity  [capacity:8 throttle:0 transport:2]
+2026-07-30T18:51:31Z  attempt 9 (1 OCPU / 6 GB): out of capacity  [capacity:9 throttle:0 transport:2]
+2026-07-30T18:59:10Z  attempt 10 (1 OCPU / 6 GB): out of capacity  [capacity:10 throttle:0 transport:2]
+2026-07-30T19:06:55Z  attempt 11 (1 OCPU / 6 GB): out of capacity  [capacity:11 throttle:0 transport:2]
+2026-07-30T19:14:18Z  attempt 12 (2 OCPU / 12 GB): out of capacity  [capacity:12 throttle:0 transport:2]
+2026-07-30T19:21:17Z  attempt 13 (1 OCPU / 6 GB): out of capacity  [capacity:13 throttle:0 transport:2]
+2026-07-30T19:29:18Z  attempt 14 (1 OCPU / 6 GB): out of capacity  [capacity:14 throttle:0 transport:2]
+2026-07-30T19:36:42Z  attempt 15: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
+2026-07-30T19:41:19Z  attempt 15 (1 OCPU / 6 GB): out of capacity  [capacity:15 throttle:0 transport:3]
+2026-07-30T19:48:47Z  attempt 16 (1 OCPU / 6 GB): out of capacity  [capacity:16 throttle:0 transport:3]
+2026-07-30T19:56:25Z  attempt 17 (1 OCPU / 6 GB): out of capacity  [capacity:17 throttle:0 transport:3]
+2026-07-30T20:04:27Z  attempt 18 (2 OCPU / 12 GB): out of capacity  [capacity:18 throttle:0 transport:3]
+2026-07-30T20:11:59Z  attempt 19: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
+2026-07-30T20:15:44Z  attempt 19 (1 OCPU / 6 GB): out of capacity  [capacity:19 throttle:0 transport:4]

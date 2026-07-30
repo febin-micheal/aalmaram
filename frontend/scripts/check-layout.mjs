@@ -12,7 +12,9 @@
 
 import assert from 'node:assert/strict'
 
-import { CARD_GAP, CARD_W, ROW_PITCH, findLinkingUnion, layoutGraph } from '../src/graph/layout.js'
+import { CARD_GAP, CARD_H, CARD_W, ROW_PITCH, findLinkingUnion, layoutGraph } from '../src/graph/layout.js'
+import { AFFORDANCE_HIT, AFFORDANCE_VISIBLE } from '../src/components/affordance-metrics.js'
+import { draftPosition } from '../src/graph/draftPlacement.js'
 import {
   CARD_ZOOM_THRESHOLD,
   COMPONENT_GAP,
@@ -24,7 +26,10 @@ import {
   layoutOverview,
   renderModeFor,
   splitComponents,
+  toGraph,
+  toScreen,
   visibleBox,
+  zoomAbout,
 } from '../src/graph/layoutOverview.js'
 
 /** Viewports the explorer has to survive. 390×844 is an iPhone 12/13/14/15. */
@@ -617,6 +622,189 @@ check('fit degrades safely before the viewport is measured', () => {
   const layout = layoutOverview(overviewFixture())
   assert.equal(fitTransform(layout.bounds, { width: 0, height: 0 }), null)
   assert.equal(fitTransform(null, DESKTOP), null)
+})
+
+// ------------------------------------------------------------------- editing
+
+console.log('\ndirect-manipulation editing')
+
+/** Apply an add the way the API + store would, then re-lay-out. */
+function afterAdding(graph, { context, anchorId, id, name, unionId }) {
+  const next = {
+    persons: [...graph.persons],
+    unions: [...graph.unions],
+    memberships: [...graph.memberships],
+  }
+  const anchor = graph.persons.find((p) => p.id === anchorId)
+  const offset = context === 'parent_of' ? -1 : context === 'partner_of' ? 0 : 1
+
+  next.persons.push({
+    id, name_en: name, name_ml: '', display_name: name, house_name: '', gender: 'unknown',
+    is_living: true, birth_display: '?', death_display: '?', lifespan_compact: '',
+    place_origin: '', generation: anchor.generation + offset, hidden_up: 0, hidden_down: 0,
+  })
+
+  if (context === 'partner_of') {
+    const u = `u_new_${id}`
+    next.unions.push({ id: u, union_type: 'marriage', status: 'unknown', year_display: '', place: '', generation: anchor.generation })
+    next.memberships.push(
+      { union: u, person: anchorId, role: 'partner', relation_type: 'biological', sibling_order: null },
+      { union: u, person: id, role: 'partner', relation_type: 'biological', sibling_order: null },
+    )
+  } else if (context === 'parent_of') {
+    const u = `u_new_${id}`
+    next.unions.push({ id: u, union_type: 'marriage', status: 'unknown', year_display: '', place: '', generation: anchor.generation - 1 })
+    next.memberships.push(
+      { union: u, person: id, role: 'partner', relation_type: 'biological', sibling_order: null },
+      { union: u, person: anchorId, role: 'child', relation_type: 'biological', sibling_order: 1 },
+    )
+  } else {
+    next.memberships.push({ union: unionId, person: id, role: 'child', relation_type: 'biological', sibling_order: 9 })
+  }
+  return next
+}
+
+function rowsDoNotOverlap(layout) {
+  const rows = new Map()
+  for (const person of layout.persons.values()) {
+    if (!rows.has(person.y)) rows.set(person.y, [])
+    rows.get(person.y).push(person)
+  }
+  for (const people of rows.values()) {
+    people.sort((a, b) => a.x - b.x)
+    for (let i = 1; i < people.length; i += 1) {
+      if (people[i].x - (people[i - 1].x + CARD_W) < CARD_GAP - 0.01) return false
+    }
+  }
+  return true
+}
+
+check('adding a partner wires a new union and keeps rows clean', () => {
+  const graph = afterAdding(fixture(), { context: 'partner_of', anchorId: 'jose', id: 'newwife', name: 'Sheeba' })
+  const layout = layoutGraph(graph, 'thomas')
+
+  assert.ok(layout.persons.has('newwife'))
+  assert.equal(layout.persons.get('newwife').y, layout.persons.get('jose').y, 'partners share a row')
+  const union = [...layout.unions.values()].find((u) => u.partnerIds?.includes('newwife'))
+  assert.ok(union, 'a union node must exist between them')
+  assert.ok(union.partnerIds.includes('jose'))
+  assert.ok(rowsDoNotOverlap(layout), 'cards overlap after adding a partner')
+})
+
+check('adding a child hangs it off the union, one row down', () => {
+  const graph = afterAdding(fixture(), { context: 'child_of_union', anchorId: 'thomas', unionId: 'u_t', id: 'newkid', name: 'Anju' })
+  const layout = layoutGraph(graph, 'thomas')
+
+  const edge = layout.edges.find((e) => e.kind === 'child' && e.personId === 'newkid')
+  assert.ok(edge, 'the child must be connected to the union, not to a parent')
+  assert.equal(edge.unionId, 'u_t')
+  assert.ok(layout.persons.get('newkid').y > layout.persons.get('thomas').y)
+  assert.ok(rowsDoNotOverlap(layout))
+})
+
+check('adding parents creates the union above and hangs the person from it', () => {
+  const graph = afterAdding(fixture(), { context: 'parent_of', anchorId: 'ittira', id: 'grandpa', name: 'Kunjachan' })
+  const layout = layoutGraph(graph, 'thomas')
+
+  assert.ok(layout.persons.get('grandpa').y < layout.persons.get('ittira').y, 'parent must be above')
+  const edge = layout.edges.find((e) => e.kind === 'child' && e.personId === 'ittira')
+  assert.ok(edge, 'Ittira must now hang from a union')
+  const union = layout.unions.get(edge.unionId)
+  assert.ok(union.y < layout.persons.get('ittira').y, 'union sits between parent and child')
+  assert.ok(rowsDoNotOverlap(layout))
+})
+
+check('four siblings entered in a row stay in order and do not overlap', () => {
+  let graph = fixture()
+  for (const [i, name] of ['A', 'B', 'C', 'D'].entries()) {
+    graph = afterAdding(graph, { context: 'child_of_union', anchorId: 'thomas', unionId: 'u_t', id: `sib${i}`, name })
+    graph.memberships[graph.memberships.length - 1].sibling_order = 3 + i
+  }
+  const layout = layoutGraph(graph, 'thomas')
+  const xs = ['sib0', 'sib1', 'sib2', 'sib3'].map((id) => layout.persons.get(id).x)
+  for (let i = 1; i < xs.length; i += 1) {
+    assert.ok(xs[i] > xs[i - 1], 'siblings must be laid out in the order they were typed')
+  }
+  assert.ok(rowsDoNotOverlap(layout))
+})
+
+check('a provisional node is placed where the affordance points', () => {
+  const anchor = { x: 100, y: 200 }
+  const partner = draftPosition('partner_of', anchor)
+  const child = draftPosition('child_of_person', anchor)
+  const parents = draftPosition('parent_of', anchor)
+
+  assert.ok(partner.x > anchor.x && partner.y === anchor.y, 'partner goes to the right')
+  assert.ok(child.y > anchor.y, 'child goes below')
+  assert.ok(parents.y < anchor.y, 'parents go above')
+  assert.ok(partner.x >= anchor.x + CARD_W, 'the draft must not sit on top of the card')
+})
+
+check('the multi-union case is answered by the server, not guessed by the layout', () => {
+  // Chacko is a partner in two unions. Nothing in the layout picks one; the union nodes
+  // are distinct and both are addressable, which is what lets the UI ask.
+  const layout = layoutGraph(fixture(), 'thomas')
+  const chackoUnions = [...layout.unions.values()].filter((u) => u.partnerIds?.includes('chacko'))
+  assert.equal(chackoUnions.length, 2)
+  assert.notEqual(chackoUnions[0].id, chackoUnions[1].id)
+  assert.notEqual(chackoUnions[0].x, chackoUnions[1].x, 'both must be separately tappable')
+})
+
+// ------------------------------------------------------- touch targets & pinch
+
+console.log('\ntouch targets and gestures')
+
+check('affordances meet the 44px touch-target guidance', () => {
+  assert.ok(AFFORDANCE_HIT >= 44, `hit target is ${AFFORDANCE_HIT}px`)
+  assert.ok(AFFORDANCE_VISIBLE <= AFFORDANCE_HIT, 'the visible circle must fit inside the target')
+})
+
+check('three affordances fit around a card without colliding', () => {
+  // Right, below and above; none may overlap another's hit area.
+  const boxes = [
+    { x: CARD_W + 6, y: CARD_H / 2 - AFFORDANCE_HIT / 2 },
+    { x: CARD_W / 2 - AFFORDANCE_HIT / 2, y: CARD_H + 6 },
+    { x: CARD_W / 2 - AFFORDANCE_HIT / 2, y: -AFFORDANCE_HIT - 6 },
+  ]
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const overlap =
+        Math.abs(boxes[i].x - boxes[j].x) < AFFORDANCE_HIT &&
+        Math.abs(boxes[i].y - boxes[j].y) < AFFORDANCE_HIT
+      assert.ok(!overlap, `affordances ${i} and ${j} overlap`)
+    }
+  }
+})
+
+check('a card plus its affordances still fits a 390px screen', () => {
+  const widest = CARD_W + 6 + AFFORDANCE_HIT
+  assert.ok(widest <= PHONE.width, `card + affordance is ${widest}px, phone is ${PHONE.width}px`)
+})
+
+check('pinch keeps the point between the fingers fixed', () => {
+  const transform = { x: 40, y: -120, k: 0.6 }
+  const centre = { x: 195, y: 400 } // middle of a 390px screen
+  const before = toGraph(transform, centre)
+
+  for (const ratio of [1.5, 2.4, 0.5, 0.2]) {
+    const zoomed = zoomAbout(transform, centre, transform.k * ratio)
+    const after = toGraph(zoomed, centre)
+    assert.ok(Math.abs(after.x - before.x) < 0.001, `x drifted at ratio ${ratio}`)
+    assert.ok(Math.abs(after.y - before.y) < 0.001, `y drifted at ratio ${ratio}`)
+  }
+})
+
+check('zoom is clamped at both ends', () => {
+  const transform = { x: 0, y: 0, k: 1 }
+  assert.ok(zoomAbout(transform, { x: 0, y: 0 }, 999).k <= 2.5, 'must not zoom past the max')
+  assert.ok(zoomAbout(transform, { x: 0, y: 0 }, 0.00001).k >= 0.004, 'must not zoom below the fit floor')
+})
+
+check('screen and graph coordinates round-trip', () => {
+  const transform = { x: -300, y: 88, k: 0.37 }
+  const point = { x: 1234, y: -567 }
+  const back = toGraph(transform, toScreen(transform, point))
+  assert.ok(Math.abs(back.x - point.x) < 0.001 && Math.abs(back.y - point.y) < 0.001)
 })
 
 console.log(`\n${passed} check(s) passed`)
