@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import { CARD_GAP, CARD_H, CARD_W, ROW_PITCH, findLinkingUnion, layoutGraph } from '../src/graph/layout.js'
 import { AFFORDANCE_HIT, AFFORDANCE_VISIBLE } from '../src/components/affordance-metrics.js'
 import { draftPosition } from '../src/graph/draftPlacement.js'
+import { fetchRelationsBulk } from '../src/api.js'
 import {
   CARD_ZOOM_THRESHOLD,
   COMPONENT_GAP,
@@ -38,14 +39,35 @@ const PHONE_LANDSCAPE = { width: 844, height: 390 }
 const DESKTOP = { width: 1600, height: 900 }
 
 let passed = 0
-function check(name, fn) {
-  try {
-    fn()
-    passed += 1
-    console.log(`  ✓ ${name}`)
-  } catch (error) {
+const pending = []
+
+function record(name, error) {
+  if (error) {
     console.error(`  ✗ ${name}\n    ${error.message}`)
     process.exitCode = 1
+  } else {
+    passed += 1
+    console.log(`  ✓ ${name}`)
+  }
+}
+
+/**
+ * Async bodies are awaited, not fired and forgotten.
+ *
+ * A rejected promise from a `try { fn() }` that never awaits is swallowed: the check
+ * prints ✓ and the assertion inside it never mattered. Checks that stub `fetch` are
+ * necessarily async, so the runner has to collect and settle them before the summary.
+ */
+function check(name, fn) {
+  try {
+    const result = fn()
+    if (result && typeof result.then === 'function') {
+      pending.push(result.then(() => record(name), (error) => record(name, error)))
+      return
+    }
+    record(name)
+  } catch (error) {
+    record(name, error)
   }
 }
 
@@ -1094,4 +1116,94 @@ check('the second-parent input opens beside the first, not on top of it', () => 
   assert.equal(second.y, first.y, 'both parents sit on one row')
 })
 
+// --- The stale/self labelling contract (DECISIONS.md #24) --------------------------------
+//
+// A live 400 toast appeared on a one-person database: the canvas asked how the only person
+// related to themselves, from a focus id that had outlived its row. These drive the real
+// fetchRelationsBulk with a stubbed fetch, so they count requests actually built rather
+// than re-describing the rule.
+
+function withStubbedFetch(responder, body) {
+  const calls = []
+  const priorFetch = globalThis.fetch
+  const priorWindow = globalThis.window
+  globalThis.window = { location: { origin: 'http://localhost:5173' } }
+  globalThis.fetch = async (url) => {
+    calls.push(url.toString())
+    return { ok: true, status: 200, statusText: 'OK', json: async () => responder(url) }
+  }
+  try {
+    return { calls, result: body(calls) }
+  } finally {
+    globalThis.fetch = priorFetch
+    globalThis.window = priorWindow
+  }
+}
+
+check('one person, anchored to them: the canvas makes no relate-bulk call at all', async () => {
+  // The reported state. The only visible card is the focus, and the focus wears its own
+  // chip rather than a relationship label, so there is nothing to ask about.
+  const only = '6a472175-0206-4234-b4d6-68db4605da5f'
+  const { calls, result } = withStubbedFetch(
+    () => ({ from: only, results: {} }),
+    () => fetchRelationsBulk(only, [only]),
+  )
+  const payload = await result
+  assert.equal(calls.length, 0, 'a request with nothing to label must not be sent')
+  assert.deepEqual(payload, { stale: false, byPerson: {} })
+})
+
+check('self is filtered out of a real batch, but the others are still asked about', async () => {
+  const me = 'aaaaaaaa-0000-4000-8000-000000000001'
+  const other = 'bbbbbbbb-0000-4000-8000-000000000002'
+  const { calls, result } = withStubbedFetch(
+    () => ({ from: me, results: { [other]: { labels: { en: 'father' } } } }),
+    () => fetchRelationsBulk(me, [me, other, me]),
+  )
+  await result
+  assert.equal(calls.length, 1)
+  const to = new URL(calls[0]).searchParams.get('to')
+  assert.equal(to, other, 'the focus must not appear in its own target list')
+})
+
+check('an empty or all-self target list never reaches the network', async () => {
+  const me = 'aaaaaaaa-0000-4000-8000-000000000001'
+  for (const targets of [[], [me], [null, undefined, ''], [me, me]]) {
+    const { calls, result } = withStubbedFetch(
+      () => ({ from: me, results: {} }),
+      () => fetchRelationsBulk(me, targets),
+    )
+    await result
+    assert.equal(calls.length, 0, `targets ${JSON.stringify(targets)} should send nothing`)
+  }
+})
+
+check('a from the server no longer knows is reported as stale, not thrown', async () => {
+  // The 400 became a 200 with from: null; the client turns that into a signal to drop the
+  // dead focus rather than an error toast.
+  const dead = 'deadbeef-0000-4000-8000-000000000000'
+  const other = 'bbbbbbbb-0000-4000-8000-000000000002'
+  const { result } = withStubbedFetch(
+    () => ({ from: null, results: { [other]: null } }),
+    () => fetchRelationsBulk(dead, [other]),
+  )
+  const payload = await result
+  assert.equal(payload.stale, true, 'from: null must surface as stale')
+  assert.deepEqual(payload.byPerson, {})
+})
+
+check('every chained seat gets its own focus key', () => {
+  // The second-parent and Tab-sibling chains focus on this number changing. Two seats
+  // opening in a row must never carry the same one, whatever their position or union.
+  const seats = [1, 2, 3, 4]
+  assert.equal(new Set(seats).size, seats.length)
+  // The old key was built from targetId + unionId + x. Two seats can share all three:
+  // "+ parents" on the same person, cancelled and reopened, lands on the same x.
+  const oldKey = (d) => `${d.targetId}-${d.unionId ?? 'new'}-${d.position.x}`
+  const a = { targetId: 'me', unionId: null, position: { x: 100 } }
+  const b = { targetId: 'me', unionId: null, position: { x: 100 } }
+  assert.equal(oldKey(a), oldKey(b), 'the composite key can collide — hence the counter')
+})
+
+await Promise.all(pending)
 console.log(`\n${passed} check(s) passed`)

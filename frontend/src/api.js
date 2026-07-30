@@ -9,7 +9,9 @@
  * A 403 is therefore not an error to retry — it means "go and log in", and the UI says so.
  */
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+// Optional chaining so this module is importable outside Vite — the headless checks drive
+// the real request-building code rather than a copy of it.
+const BASE = import.meta.env?.VITE_API_BASE_URL ?? '/api/v1'
 
 export class NotAuthenticated extends Error {
   constructor() {
@@ -129,12 +131,20 @@ export const setAnchor = (personId) => send('PATCH', '/me/anchor/', { person_id:
  * round trip per visible card.
  */
 export async function fetchRelationsBulk(fromId, targetIds, batchSize = 150) {
+  // Self is dropped, not asked about: the focus wears its own chip. With one person in the
+  // graph that empties the list, and a request with nothing to label is a request that
+  // should not be made at all.
   const unique = [...new Set(targetIds)].filter((id) => id && id !== fromId)
+  if (!fromId || !unique.length) return { stale: false, byPerson: {} }
+
   const results = {}
   for (let i = 0; i < unique.length; i += batchSize) {
     const batch = unique.slice(i, i + batchSize)
     const payload = await get('/relate-bulk/', { from: fromId, to: batch.join(',') })
+    // `from: null` means the server has no such person — our focus outlived the row it
+    // pointed at. Report it rather than showing a silently unlabelled graph.
+    if (payload.from === null) return { stale: true, byPerson: {} }
     Object.assign(results, payload.results)
   }
-  return results
+  return { stale: false, byPerson: results }
 }

@@ -11,14 +11,31 @@ import { useEffect, useRef, useState } from 'react'
  * Keys: Enter commits, Tab commits and opens the next sibling, Escape cancels. m and f set
  * gender when the field is empty — a single keystroke rather than a control to aim at.
  */
-export default function InlineInput({ screenX, screenY, busy, hint, onCommit, onCancel, t }) {
+export default function InlineInput({ screenX, screenY, busy, hint, focusKey, onCommit, onCancel, t }) {
   const [value, setValue] = useState('')
   const [gender, setGender] = useState('unknown')
   const input = useRef(null)
 
+  /**
+   * Take focus whenever this box becomes a *different* box.
+   *
+   * "+ parents" opens the father's seat and then the mother's, and Tab chains siblings —
+   * one continuous motion, so the caret has to arrive without being clicked for. Keying the
+   * element and relying on the remount would also fire this, but only as long as no two
+   * consecutive drafts ever produce the same key; that is a property of how the key happens
+   * to be built, not something this component can promise. Focusing on an explicit identity
+   * makes the behaviour independent of whether React reuses the node.
+   */
   useEffect(() => {
-    input.current?.focus()
-  }, [])
+    setValue('')
+    setGender('unknown')
+    const node = input.current
+    if (!node) return
+    // After paint: the box is positioned from a fresh transform, and on iOS focusing a
+    // not-yet-laid-out input is what makes the keyboard open against the wrong element.
+    const frame = requestAnimationFrame(() => node.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [focusKey])
 
   const submit = (andSibling) => {
     if (!value.trim()) {

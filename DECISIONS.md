@@ -816,3 +816,80 @@ be "mother" / "അമ്മ"* — plus a test asserting the old behaviour produc
 **not** "mother", so the difference stays pinned. Five headless checks compare the fixed
 geometry (one union, both parents, child below) against the bug's (two unions, mother
 parenting nobody).
+
+---
+
+## 24. relate-bulk is total over the graph; only malformed requests fail
+
+**Context.** On a one-person database the explorer showed an error toast:
+`400 Bad Request for /api/v1/relate-bulk/`. Reproduced against the running stack, the 400
+came from exactly one condition — a `from` id that no longer resolved to a canonical
+person. Every other suspected case (`to == from`, empty `to`, `to` omitted, unknown target
+ids) already returned 200.
+
+**Cause.** The focus id lives in `localStorage` under `aalmaram.focus` and was never
+checked against the server. After `make reset-db` — or an undo that deleted the anchored
+person — the id outlived its row. Worse, `useFocus` preferred the stored value over the
+server's anchor (`current ?? payload.anchor_person?.id`), so a stale id could not be
+displaced by re-anchoring elsewhere. The canvas then asked for labels from a viewpoint that
+did not exist, and `loadRelations` turned the failure into a toast.
+
+**Decision — the contract.** relate-bulk is a *labelling* endpoint, and labelling has
+exactly one failure mode: there is no label. "That person is gone" and "those two are
+unrelated" produce the same nothing. So the endpoint is **total over the state of the
+graph**, and only a malformed *request* is refused:
+
+| condition | answer |
+| --- | --- |
+| `from` missing or blank | **400** `missing_from` |
+| more than `MAX_TARGETS` targets | **400** `too_many_targets` |
+| `from` well-formed but unresolved | **200**, `from: null`, every target `null` |
+| target unknown, or genuinely unrelated | **200**, `null` for that id |
+| `target == from` | **200**, `kind: "self"` |
+| `to` empty or omitted | **200**, `results: {}` |
+
+**Why 200 and not 404 for an unresolved `from`.** A cached viewpoint going stale is
+ordinary, not exceptional — it happens on every reset and every undo of an anchored person.
+Any status in the 4xx range forces every caller to write the same defensive branch for a
+condition the server can describe perfectly well in the normal payload. `from: null` is
+more useful than a status code: it is a *signal to drop the stale id*, which is what the
+client now does. The failure is handled, not swallowed.
+
+The rejected alternative was to keep the 400 and make the client avoid it. That fixes this
+call site and leaves the trap armed for the next one.
+
+**Client, three separate defects at three layers.**
+
+1. `fetchRelationsBulk` returns early when no target survives filtering — self is dropped
+   because the focus wears its own chip, and on a one-person graph that empties the list.
+   **A request with nothing to label is now never built.**
+2. `from: null` clears the dead focus (and any pin holding it) and re-reads the anchor, so
+   the app self-heals instead of failing every subsequent fetch.
+3. A label failure is `console.warn`, not a toast. Labels are decoration over a graph that
+   renders fine without them; a toast the user can do nothing about is noise.
+
+Stale *target* ids need no client bookkeeping — unknown targets return `null` per id, so a
+half-stale batch still labels everyone it can.
+
+**Also: chained input focus no longer depends on remounting.** The second-parent and
+Tab-sibling chains focused the box by keying the element on
+`targetId + unionId + position.x` and relying on the remount. That holds only while no two
+consecutive drafts share those three, which is a property of how the key happens to be
+built rather than something the component can promise — "+ parents", cancelled and
+reopened, collides on all three. Each opened seat now carries a monotonic `seat` number and
+`InlineInput` focuses on that changing, inside a `requestAnimationFrame` so the input is
+laid out before it takes focus (focusing a not-yet-positioned input is what opens the iOS
+keyboard against the wrong element).
+
+**Tests.** Eight backend tests pin the table above, including the literal repro — one
+person, anchored to them, every call the canvas can make returns 200 — and a
+delete-the-focus-person test that reproduces it through undo's actual mechanism rather than
+a synthetic uuid. Four headless checks drive the real `fetchRelationsBulk` with a stubbed
+`fetch` and **count the requests built**, so "no call is made" is verified rather than
+described.
+
+**One thing the fix uncovered.** The headless runner called check bodies synchronously
+inside `try/catch`, so an async body's rejection was swallowed and printed ✓. Every
+fetch-stubbing check is necessarily async, so the runner now collects promises and settles
+them before the summary. Verified by breaking an async assertion deliberately: exit code 1
+and a ✗ line, where before it would have passed silently.

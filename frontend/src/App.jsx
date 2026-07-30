@@ -485,7 +485,7 @@ export default function App() {
 
         {editor.mode === 'placing' && editor.draft && (
           <InlineInput
-            key={`${editor.draft.targetId}-${editor.draft.unionId ?? 'new'}-${editor.draft.position.x}`}
+            focusKey={editor.draft.seat}
             screenX={draftScreen.x}
             screenY={draftScreen.y}
             busy={editor.busy}

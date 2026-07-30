@@ -112,25 +112,50 @@ export function useFocus({ onError } = {}) {
     [chips, activeId],
   )
 
+  /** Drop a focus id the server no longer knows, falling back to "me" if that still holds. */
+  const dropStaleFocus = useCallback((deadId) => {
+    setPins((current) => current.filter((p) => p.id !== deadId))
+    setMe((current) => (current?.id === deadId ? null : current))
+    setActiveId((current) => (current === deadId ? null : current))
+    // Re-read the anchor: after a reset it is null, and that is the honest new state.
+    fetchMe()
+      .then((payload) => {
+        setMe(payload.anchor_person ?? null)
+        setActiveId((current) => current ?? payload.anchor_person?.id ?? null)
+      })
+      .catch(() => {})
+  }, [])
+
   /** Fetch labels for exactly these people, relative to the active focus. */
   const loadRelations = useCallback(
     async (personIds) => {
-      if (!activeId || !personIds?.length) {
+      const targets = (personIds ?? []).filter((id) => id && id !== activeId)
+      if (!activeId || !targets.length) {
+        // Nobody to label — the one-person graph, or a graph showing only the focus.
         setRelations({})
         return
       }
       setLoading(true)
       try {
-        const payload = await fetchRelationsBulk(activeId, personIds)
+        const { stale, byPerson } = await fetchRelationsBulk(activeId, targets)
+        if (stale) {
+          setRelations({})
+          dropStaleFocus(activeId)
+          return
+        }
         // Keyed by focus so a stale response for a previous focus cannot be applied.
-        setRelations({ focus: activeId, byPerson: payload })
+        setRelations({ focus: activeId, byPerson })
       } catch (error) {
-        onError?.(error.detail ?? error.message)
+        // Labels are decoration on top of a graph that renders fine without them. A failure
+        // here costs the chips, not the view, so it is logged rather than thrown at the
+        // user as a toast they can do nothing about.
+        console.warn('Could not load relationship labels', error)
+        setRelations({})
       } finally {
         setLoading(false)
       }
     },
-    [activeId, onError],
+    [activeId, dropStaleFocus],
   )
 
   const labelFor = useCallback(

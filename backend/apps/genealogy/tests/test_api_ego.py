@@ -6,6 +6,8 @@ every time the focus changes — fast enough on a fixture family, unusable on a 
 So the count is pinned, and pinned again at a larger size to prove it does not grow.
 """
 
+import uuid
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -357,3 +359,88 @@ def test_bulk_tolerates_junk_ids(staff_client, family_a):
 
 def test_bulk_needs_a_from(staff_client, family_a):
     assert staff_client.get(BULK_URL, {"to": str(family_a.jose.pk)}).status_code == 400
+
+
+# --- The totality contract (DECISIONS.md #24) --------------------------------------------
+#
+# A live 400 sent the explorer an error toast for a call it should never have made: the
+# focus id in localStorage outlived the person it pointed at, so `from` no longer resolved.
+# These pin the rule that came out of it — labelling fails only on a malformed *request*,
+# never on the state of the graph.
+
+
+def test_a_from_that_no_longer_exists_is_answered_not_refused(staff_client, family_a):
+    """The exact live repro: a focus id cached before the row went away."""
+    dead = uuid.uuid4()
+    response = staff_client.get(BULK_URL, {"from": str(dead), "to": str(family_a.jose.pk)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    # `from: null` is the signal the client acts on to drop the stale id.
+    assert payload["from"] is None
+    assert payload["results"] == {str(family_a.jose.pk): None}
+
+
+def test_a_deleted_focus_person_stops_being_a_viewpoint(staff_client, family_a):
+    """Not a synthetic uuid — a real person, deleted, exactly as undo does it."""
+    subject, target = family_a.jose, family_a.thomas
+    assert staff_client.get(BULK_URL, {"from": str(subject.pk), "to": str(target.pk)}).json()[
+        "results"
+    ][str(target.pk)] is not None
+
+    Person.objects.filter(pk=subject.pk).delete()
+
+    response = staff_client.get(BULK_URL, {"from": str(subject.pk), "to": str(target.pk)})
+    assert response.status_code == 200
+    assert response.json()["from"] is None
+
+
+def test_only_a_missing_from_is_a_bad_request(staff_client, family_a):
+    """Blank and absent are client bugs; unresolvable is a fact about the graph."""
+    for params in ({"to": str(family_a.jose.pk)}, {"from": "", "to": str(family_a.jose.pk)}):
+        response = staff_client.get(BULK_URL, params)
+        assert response.status_code == 400
+        assert response.json()["code"] == "missing_from"
+
+
+def test_to_equal_to_from_is_served(staff_client, family_a):
+    """One person in the graph, anchored to them: the canvas's first-ever labelling call."""
+    only = family_a.jose
+    response = staff_client.get(BULK_URL, {"from": str(only.pk), "to": str(only.pk)})
+
+    assert response.status_code == 200
+    assert response.json()["results"][str(only.pk)]["kind"] == "self"
+
+
+@pytest.mark.parametrize("params", [{"to": ""}, {}])
+def test_an_empty_target_list_is_an_empty_answer(staff_client, family_a, params):
+    response = staff_client.get(BULK_URL, {"from": str(family_a.jose.pk), **params})
+
+    assert response.status_code == 200
+    assert response.json() == {"from": str(family_a.jose.pk), "results": {}}
+
+
+def test_unknown_targets_are_null_beside_real_answers(staff_client, family_a):
+    """A half-stale batch still labels everyone it can."""
+    ghost = str(uuid.uuid4())
+    response = staff_client.get(
+        BULK_URL,
+        {"from": str(family_a.jose.pk), "to": f"{ghost},{family_a.thomas.pk}"},
+    )
+
+    payload = response.json()["results"]
+    assert payload[ghost] is None
+    assert payload[str(family_a.thomas.pk)] is not None
+
+
+def test_the_single_person_database_labels_without_error(staff_client):
+    """End to end on the reported state: one person, anchored to them, nothing else."""
+    user = staff_client.user
+    only = Person.objects.create(name_en="Only", created_by=user)
+    user.anchor_person = only
+    user.save(update_fields=["anchor_person"])
+
+    assert staff_client.get("/api/v1/me/").json()["anchor_person"]["id"] == str(only.pk)
+    # Whatever the canvas asks — itself, nothing, or a ghost — nothing 400s.
+    for to in (str(only.pk), "", str(uuid.uuid4())):
+        assert staff_client.get(BULK_URL, {"from": str(only.pk), "to": to}).status_code == 200

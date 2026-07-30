@@ -416,15 +416,29 @@ class RelateBulkView(APIView):
     would have to be redone every time the focus changes. This answers the whole batch in
     three queries — see graph/relate_bulk.py — and uses the same naming module as the
     single-pair view, so a label can never differ between the two.
+
+    **Contract (DECISIONS.md #24): this endpoint is total over the graph.** Labelling has
+    exactly one failure mode — there is no label — and "that person is gone" produces the
+    same nothing as "those two are unrelated". So the only 400s are malformed *requests*:
+
+    - `from` missing or blank            -> 400 `missing_from`
+    - more than MAX_TARGETS targets      -> 400 `too_many_targets`
+    - `from` well-formed but unresolved  -> 200, `from: null`, every target null
+    - target unknown, or not related     -> 200, null for that id
+    - target == from                     -> 200, `kind: "self"` (truthful; clients ignore it)
+    - `to` empty or omitted              -> 200, `results: {}`
+
+    The UI therefore needs no defensive branch around a call whose data went stale.
     """
 
     permission_classes = [IsStaff]
 
     def get(self, request):
-        subject = _person_or_none(request.query_params.get("from"))
-        if subject is None:
+        raw_from = (request.query_params.get("from") or "").strip()
+        if not raw_from:
+            # No viewpoint at all is a malformed request, not a fact about the graph.
             return Response(
-                {"detail": "Pass ?from=<uuid> and ?to=<uuid,uuid,...>."},
+                {"detail": "Pass ?from=<uuid> and ?to=<uuid,uuid,...>.", "code": "missing_from"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -440,6 +454,15 @@ class RelateBulkView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        subject = _person_or_none(raw_from)
+        if subject is None:
+            # A well-formed id that resolves to nobody — a focus the client cached before
+            # the graph changed under it, which is ordinary rather than exceptional. Answer
+            # in the shape the caller expects: no viewpoint, so no labels. `from: null` is
+            # the signal to drop the stale id; failing the batch would only make every
+            # caller write the same defensive branch.
+            return Response({"from": None, "results": {t: None for t in raw_targets}})
 
         relations = relate_bulk(subject.id, raw_targets)
 

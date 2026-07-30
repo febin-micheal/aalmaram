@@ -29,6 +29,10 @@ export function useEditor({ onApplied, onRemoved, onError }) {
   const [state, setState] = useState(IDLE)
   const [busy, setBusy] = useState(false)
   const lastCreated = useRef(null)
+  // Every opened seat gets its own number. The input box focuses on this changing, so
+  // chained seats (father then mother, sibling then sibling) can never collide the way a
+  // key built from position or union id could.
+  const seat = useRef(0)
 
   const cancel = useCallback(() => setState(IDLE), [])
 
@@ -37,6 +41,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
     setState({
       mode: 'placing',
       draft: {
+        seat: ++seat.current,
         context,
         anchor,
         targetId: anchor?.id ?? null,
@@ -83,6 +88,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
           setState({
             mode: 'placing',
             draft: {
+              seat: ++seat.current,
               context: 'partner_in_union',
               unionContext: 'partner_in_union',
               anchor: draft.anchor,
@@ -104,6 +110,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
           setState({
             mode: 'placing',
             draft: {
+              seat: ++seat.current,
               context: 'child_of_union',
               anchor: draft.anchor,
               targetId: draft.targetId,
