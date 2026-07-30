@@ -67,8 +67,35 @@ the shape it actually got, verifies SSH, and exits.
 | Interval | 5 minutes + up to 90s jitter |
 | Usual request | 1 OCPU / 6 GB — a smaller ask fits more free slots |
 | Every 6th attempt | 2 OCPU / 12 GB, in case a larger slot opened |
-| Stops immediately on | authorisation, quota or limit errors — those never fix themselves |
-| Runs forever on | "out of host capacity", which is expected |
+
+### How failures are classified
+
+An overnight loop that treats every failure as "still waiting for capacity" will happily
+run for eight hours against an expired credential. So every failure is matched against
+explicit patterns, and **the full raw error of every attempt is written to
+`launch-errors.log`, never truncated**. The one-line entries in `launch-attempts.log` are
+a readable summary, not the evidence.
+
+| Class | Recognised by | Action |
+|---|---|---|
+| **capacity** | `Out of host capacity` / `InternalError` + HTTP 500 | Retry after ~5 min. This is the queue. |
+| **throttle** | `TooManyRequests` / HTTP 429 | Back off 15 min. Does **not** count as an attempt — a throttled call never reached the capacity check. |
+| **transport** | `RequestException`, `ConnectTimeout`, DNS/TLS/reset | Back off 2 min. Our network failed, not Oracle's capacity, so it does not count either. |
+| **fatal** | auth, policy, quota, limit, bad parameter | Halt immediately. Waiting cannot fix any of these. |
+| **unknown** | anything else | Log in full and halt after 3 in a row. Never silently absorbed into the retry. |
+
+The confirmed A1.Flex capacity response, for reference:
+
+```json
+{ "code": "InternalError", "message": "Out of host capacity.", "status": 500 }
+```
+
+### Duplicate protection
+
+A transport failure can hide a request that *did* reach Oracle: the launch succeeds and
+the response is lost. Retrying blindly would create a second instance and burn the Always
+Free quota. Every iteration therefore checks for an existing instance named `aalmaram`
+first and adopts it rather than launching another.
 
 Both shapes sit inside Always Free (4 OCPU / 24 GB across all A1 instances). The script
 cannot create a paid resource.

@@ -1,7 +1,7 @@
-2026-07-30T17:26:07Z  availability domain: EDcO:AP-HYDERABAD-1-AD-1
-2026-07-30T17:26:10Z  image: Canonical-Ubuntu-24.04-aarch64-2026.06.29-0
-2026-07-30T17:26:10Z         ocid1.image.oc1.ap-hyderabad-1.aaaaaaaapa7wgrtfrozmf5rloqktgldrbg332i6ojop4bcxzp4azhh57t54a
-2026-07-30T17:26:10Z  subnet: ocid1.subnet.oc1.ap-hyderabad-1.aaaaaaaala7ahttvym7ipk4w32xv2yqiqnudoe37n75gwrlhyyuvmu3ej3ua
-2026-07-30T17:26:10Z  starting retry loop — every ~300s with jitter; every 6th attempt tries the larger shape
-2026-07-30T17:26:10Z  
-2026-07-30T17:27:46Z  attempt 1 (1 OCPU / 6 GB): InternalError
+2026-07-30T17:41:05Z  availability domain: EDcO:AP-HYDERABAD-1-AD-1
+2026-07-30T17:41:07Z  image: Canonical-Ubuntu-24.04-aarch64-2026.06.29-0
+2026-07-30T17:41:07Z  subnet: ocid1.subnet.oc1.ap-hyderabad-1.aaaaaaaala7ahttvym7ipk4w32xv2yqiqnudoe37n75gwrlhyyuvmu3ej3ua
+2026-07-30T17:41:07Z  intervals: capacity 300s · throttle 900s · transport 120s
+2026-07-30T17:41:07Z  full errors -> /home/febin/aalmaram/deploy/launch-errors.log; unknown errors halt after 3 in a row
+2026-07-30T17:41:07Z  
+2026-07-30T17:42:45Z  attempt 1 (1 OCPU / 6 GB): out of capacity  [capacity:1 throttle:0 transport:0]

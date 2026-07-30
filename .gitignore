@@ -32,8 +32,11 @@ rclone.conf
 oci_api_key*
 *.pem
 *.key
-deploy/launch-attempts.log
+deploy/*.log
+deploy/*.log.prev
+deploy/*.out
 deploy/*.env
+deploy/launch.pid
 staticfiles/
 .pytest_cache/
 .coverage
