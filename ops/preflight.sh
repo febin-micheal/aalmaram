@@ -35,6 +35,9 @@ declare -A PATHS=(
   ["the secrets directory"]='^secrets/'
   ["deploy host config"]='(^|/)\.deploy\.env$'
   ["cloud credentials"]='(^|/)\.aws/|(^|/)\.oci/|credentials\.json$|service-account.*\.json$'
+  ["OCI config or API keys"]='(^|/)oci_api_key|(^|/)config$.*oci|^deploy/.*\.pem$|oci_config'
+  ["any PEM or key file"]='\.pem$|\.key$|\.p12$|\.pfx$'
+  ["deploy run state"]='^deploy/(launch-attempts\.log|.*\.env)$'
 )
 for label in "${!PATHS[@]}"; do
   hits=$(echo "$staged" | grep -E "${PATHS[$label]}" || true)
@@ -53,6 +56,10 @@ scan_files=$(echo "$staged" | grep -vE 'package-lock\.json|ops/preflight\.sh|\.e
 declare -A CONTENT=(
   ["private key block"]='BEGIN (RSA |OPENSSH |EC |PGP )?PRIVATE KEY'
   ["age secret key"]='AGE-SECRET-KEY-1'
+  ["an OCI tenancy or user OCID"]='ocid1\.(tenancy|user)\.oc1'
+  # Matches both "fingerprint = aa:bb:.." in a config and a bare fingerprint on its own.
+  ["an API key fingerprint"]='([0-9a-f]{2}:){10,}[0-9a-f]{2}'
+  ["a key_file path"]='key_file[[:space:]]*=[[:space:]]*/'
   ["AWS access key"]='AKIA[0-9A-Z]{16}'
   ["Backblaze application key"]='\b[A-Za-z0-9]{31}\b.*applicationKey|applicationKey.*=.*[A-Za-z0-9]{25,}'
   ["personal email"]='febinmichealantony|@gmail\.com'

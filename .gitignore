@@ -26,6 +26,14 @@ secrets/
 *.gpg
 age-identity*.txt
 rclone.conf
+# Cloud provider credentials and deploy run state. ~/.oci lives outside the repo, but a
+# stray copy must never be committable either.
+.oci/
+oci_api_key*
+*.pem
+*.key
+deploy/launch-attempts.log
+deploy/*.env
 staticfiles/
 .pytest_cache/
 .coverage
