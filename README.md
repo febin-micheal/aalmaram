@@ -48,6 +48,44 @@ These URLs are pinned as literal strings by
 and [test_api.py](backend/apps/genealogy/tests/test_api.py), so the table cannot drift out
 of date without the test suite failing.
 
+## Screenshots
+
+> Slots are ready; the images are not taken yet. Drop the three PNGs into
+> `docs/screenshots/` with these exact filenames and they appear here. Everything shown is
+> **fictional seed data** — that is the only thing that may ever be screenshotted into a
+> public repo.
+
+### The whole archive
+
+![The big-picture landing: every person in the database as a dot, families packed side by side, house-name labels over each cluster](docs/screenshots/overview.png)
+
+### Semantic zoom into one family
+
+![Zoomed in past the threshold: dots become person cards, with a remarriage drawn as two adjacent unions](docs/screenshots/card-zoom.png)
+
+### How are we related?
+
+![Relate mode: two people picked, the common ancestor and both descent paths highlighted through the graph](docs/screenshots/relate.png)
+
+<details>
+<summary>How to take them</summary>
+
+The explorer keeps its state in memory rather than in the URL, so there is one address and
+the other two shots are reached by clicking. Log into http://localhost:8000/admin/ first,
+then open **http://localhost:5173/** and:
+
+| File | Steps | Frame it on |
+| --- | --- | --- |
+| `overview.png` | Land on the page; press **⤢** to fit | The whole archive as dots with house-name cluster labels |
+| `card-zoom.png` | Search **`Athira`**, click the result, then scroll to zoom in until cards appear | She has two unions and six children — the remarriage draws as two adjacent union nodes with the half-siblings under separate ones |
+| `relate.png` | Click **Relate**, click **Joseph**, then **Mathai** | Fourth cousins / നാലാം കസിൻ via Smitha, both five-generation descent paths lit up |
+
+The seeded database these refer to is dumped at
+`backups/manual-fictional-seed-for-screenshots.dump` — restore it with
+`make restore FILE=…` whenever you want to retake these, without disturbing real data.
+
+</details>
+
 ## Using with real data
 
 Everything up to now has run on `make seed` — a fictional family. When you start entering
@@ -96,6 +134,25 @@ already used rather than one you are reading about during an emergency:
 
 Verified on this machine at step 9: 1214 people restored from a dump taken before a reset,
 with the admin login intact.
+
+## Data entry log
+
+When you hit something the quick-add form cannot express — a father known only by his
+house name, a person everyone calls by a pet name, "born some time in the 40s", a second
+marriage whose children you cannot attribute — **write it down instead of forcing the data
+to fit**.
+
+That list is what Phase 2's swipe cards get designed from. The card that asks "was X older
+or younger than Y?" only exists because someone first wrote down "I know the birth order
+but not the years."
+
+```bash
+cp NOTES.example.md NOTES.md   # already done if you followed the setup
+```
+
+`NOTES.md` is **gitignored** — it will name real relatives by its nature.
+[NOTES.example.md](NOTES.example.md) is the committed template, so the format survives even
+though the content never leaves your machine. Same pattern as `.env` / `.env.example`.
 
 ## The explorer
 

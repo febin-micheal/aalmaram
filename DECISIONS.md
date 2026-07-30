@@ -456,3 +456,21 @@ cleaner than scraping a token out of an admin page.
 
 Editing a person's own fields still links out to the Django admin change page. In-graph
 editing is a later phase, and an honest handoff beats a half-built form.
+
+## 19. The data-entry friction log is gitignored, its template is not
+
+**Phase 1.6, housekeeping.** The owner needs somewhere to record every time the quick-add
+form cannot express something true about a real relative — an unknown father known only by
+a house name, a person with no formal name, "some time in the 40s", a remarriage whose
+children cannot be attributed. That list is the input to Phase 2's card design.
+
+By its nature it will contain real names and real family circumstances, so it cannot be a
+README section and it cannot be committed. It is `NOTES.md`, gitignored, with
+`NOTES.example.md` committed as the template — the same split this repo already uses for
+`.env` / `.env.example`, so the format is version-controlled while the content never leaves
+the machine.
+
+Screenshots take the opposite rule: `docs/screenshots/` is deliberately **not** ignored,
+because the only thing that may ever be screenshotted is fictional seed data. The dump
+`backups/manual-fictional-seed-for-screenshots.dump` preserves the seeded archive those
+images refer to, so they can be retaken after the database holds real data.

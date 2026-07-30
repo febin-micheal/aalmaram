@@ -11,6 +11,9 @@ build/
 .DS_Store
 *.sqlite3
 media/
+# The data-entry friction log. Contains real relatives' names by its nature; the
+# committed template is NOTES.example.md.
+NOTES.md
 # Database dumps. Real family data lives here and must never reach a public repo.
 # The directory itself is tracked (via .gitkeep) so Docker cannot create it root-owned.
 backups/*
