@@ -110,5 +110,13 @@
   "focus.unclaimed": "Anchor cleared.",
   "focus.isThisYou": "Is this you?",
   "focus.yes": "Yes, this is me",
-  "focus.later": "Later"
+  "focus.later": "Later",
+  "seat.title": "Where does {name} belong?",
+  "seat.body": "This person already has a union with one partner recorded. Adding the other parent is different from recording a second marriage — and they look the same afterwards, so it is worth getting right now.",
+  "seat.join": "The other parent",
+  "seat.withChildren": "Parent of {children}",
+  "seat.noChildren": "A union with no children recorded yet",
+  "seat.newMarriage": "A separate marriage",
+  "seat.newMarriageHint": "Creates a new union — the remarriage path",
+  "edit.secondParentHint": "Now the other parent — Enter to add, or Esc to leave it unknown"
 }

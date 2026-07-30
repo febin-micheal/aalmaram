@@ -107,7 +107,14 @@ class CreatePersonSerializer(serializers.Serializer):
     and any future caller cannot drift apart on it.
     """
 
-    CONTEXTS = ("standalone", "partner_of", "child_of_union", "child_of_person", "parent_of")
+    CONTEXTS = (
+        "standalone",
+        "partner_of",
+        "partner_in_union",
+        "child_of_union",
+        "child_of_person",
+        "parent_of",
+    )
 
     context = serializers.ChoiceField(choices=CONTEXTS)
     #: The person the affordance was clicked on (all contexts except child_of_union).
@@ -124,15 +131,19 @@ class CreatePersonSerializer(serializers.Serializer):
     relation_type = serializers.ChoiceField(
         choices=RelationType.choices, required=False, default=RelationType.BIOLOGICAL
     )
+    #: Take the remarriage path deliberately, past the open-seat question.
+    force_new_union = serializers.BooleanField(required=False, default=False)
+    #: Join someone already in the graph, instead of creating a new person.
+    existing_person_id = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, attrs):
         context = attrs["context"]
         if context == "standalone":
             # The first person in an empty archive is related to nobody yet.
             pass
-        elif context == "child_of_union":
+        elif context in ("child_of_union", "partner_in_union"):
             if not attrs.get("union"):
-                raise serializers.ValidationError({"union": "child_of_union needs a union id."})
+                raise serializers.ValidationError({"union": f"{context} needs a union id."})
             if not Union.objects.filter(pk=attrs["union"]).exists():
                 raise serializers.ValidationError({"union": "No such union."})
         else:
@@ -140,6 +151,12 @@ class CreatePersonSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"target": f"{context} needs a target person."})
             if not Person.objects.canonical().filter(pk=attrs["target"]).exists():
                 raise serializers.ValidationError({"target": "No such canonical person."})
+
+        if (
+            attrs.get("existing_person_id")
+            and not Person.objects.canonical().filter(pk=attrs["existing_person_id"]).exists()
+        ):
+            raise serializers.ValidationError({"existing_person_id": "No such canonical person."})
 
         if attrs.get("birth"):
             # Reject an unreadable year here rather than storing a blank and pretending.

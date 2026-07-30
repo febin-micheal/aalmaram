@@ -6,6 +6,7 @@ import FocusBar from './components/FocusBar.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import QuickAddDialog from './components/QuickAddDialog.jsx'
 import RelateBar from './components/RelateBar.jsx'
+import SeatChooser from './components/SeatChooser.jsx'
 import SidePanel from './components/SidePanel.jsx'
 import Toolbar from './components/Toolbar.jsx'
 import InlineInput from './components/InlineInput.jsx'
@@ -488,12 +489,37 @@ export default function App() {
             screenX={draftScreen.x}
             screenY={draftScreen.y}
             busy={editor.busy}
+            hint={editor.draft?.secondParent ? t('edit.secondParentHint') : undefined}
             onCommit={commitDraft}
             onCancel={() => {
               editor.cancel()
               setStartingFirstPerson(false)
             }}
             t={t}
+          />
+        )}
+
+        {editor.mode === 'choosing-seat' && (
+          <SeatChooser
+            t={t}
+            locale={locale}
+            name={editor.pendingName}
+            seats={editor.openSeats}
+            onJoin={async (unionId) => {
+              const created = await editor.resolveSeat(unionId)
+              if (created) {
+                showToast(t('edit.added', { name: created.person.display_name }), 'ok')
+                overview.refresh().catch(() => {})
+              }
+            }}
+            onNewMarriage={async () => {
+              const created = await editor.resolveSeat(null)
+              if (created) {
+                showToast(t('edit.added', { name: created.person.display_name }), 'ok')
+                overview.refresh().catch(() => {})
+              }
+            }}
+            onCancel={editor.cancel}
           />
         )}
 

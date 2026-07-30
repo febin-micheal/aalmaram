@@ -35,10 +35,13 @@ from apps.genealogy.graph import (
 from apps.genealogy.households import (
     AlreadyHasParents,
     AmbiguousUnion,
+    NotJoinable,
     NotProvisional,
+    OpenPartnerSlot,
     create_family_unit,
     create_person_in_context,
     delete_provisional_person,
+    leave_union,
 )
 from apps.genealogy.models import Person, Role, Union
 from apps.genealogy.year_parsing import YearParseError
@@ -74,6 +77,7 @@ def _created_payload(result) -> dict:
         union.generation = 0
     return {
         "person": PersonNodeSerializer(person).data,
+        "created_person": result.get("created_person", True),
         "union": str(result["union"].id) if result["union"] else None,
         "created_unions": UnionNodeSerializer(result["created_unions"], many=True).data,
         "memberships": MembershipEdgeSerializer(result["memberships"], many=True).data,
@@ -138,6 +142,12 @@ class PersonViewSet(viewsets.ModelViewSet):
                 context=data["context"],
                 target=target,
                 union=union,
+                force_new_union=data.get("force_new_union", False),
+                existing_person=(
+                    Person.objects.filter(pk=data["existing_person_id"]).first()
+                    if data.get("existing_person_id")
+                    else None
+                ),
                 name_en=data.get("name_en", ""),
                 name_ml=data.get("name_ml", ""),
                 gender=data.get("gender", "unknown"),
@@ -155,6 +165,23 @@ class PersonViewSet(viewsets.ModelViewSet):
                     "code": "ambiguous_union",
                     "unions": [str(uid) for uid in error.union_ids],
                 },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except OpenPartnerSlot as error:
+            # Not a mistake — a question. "The other parent of those children" and "a
+            # second marriage" are different facts, and picking one silently would record
+            # a mother as a stranger the father happened to marry.
+            return Response(
+                {
+                    "detail": str(error),
+                    "code": "open_partner_slot",
+                    "unions": error.unions,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except NotJoinable as error:
+            return Response(
+                {"detail": str(error), "code": "not_joinable"},
                 status=status.HTTP_409_CONFLICT,
             )
         except AlreadyHasParents as error:
@@ -323,6 +350,32 @@ class CsrfView(APIView):
 
     def get(self, request):
         return Response({"detail": "CSRF cookie set"})
+
+
+class UnionPartnerView(APIView):
+    """Detach a partner from a union — the inverse of joining an existing person to one.
+
+    Deleting the person would be wrong here: they existed before the join and are somebody
+    else's relative. Undo has to take back only the step that was taken.
+    """
+
+    permission_classes = [IsStaff]
+
+    def delete(self, request, union_id=None, person_id=None):
+        union = Union.objects.filter(pk=union_id).first()
+        person = Person.objects.filter(pk=person_id).first()
+        if union is None or person is None:
+            return Response(
+                {"detail": "No such union or person."}, status=status.HTTP_404_NOT_FOUND
+            )
+        try:
+            removed = leave_union(person, union)
+        except NotProvisional as error:
+            return Response(
+                {"detail": str(error), "code": "not_provisional"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(removed)
 
 
 class MeView(APIView):

@@ -120,7 +120,10 @@ second marriage, an unknown parent, the Tab sibling flow, an undo and an inline 
 | 1 | `make reset-db` (type `YES`), reload http://localhost:5173/ | The **"No family recorded yet"** screen, with **Add the first person** and a smaller *"Or add a whole household from a form"* below it |
 | 2 | Click **Add the first person** | The empty screen gives way to the **canvas**, with a name box already focused at the centre — no dialog |
 | 3 | Type `Ittira`, press `m`, Enter | A single card on the sheet. Hover it: **+ partner** right, **+ child** below, **+ parents** above |
+| 3a | Hover **Ittira** → click **+ parents**, type `Kunjachan`, `m`, **Enter** | A second input opens *immediately beside it*, hinting **"Now the other parent"** — the union was created once and is waiting for its second seat |
+| 3a-ii | Type `Thresia`, `f`, Enter | Both parents sit on **one** row over **one** union dot, with Ittira hanging below. Press Esc instead at this step if the other parent is unknown — a single-partner union is a valid record |
 | 3b | Hover **Ittira** → **+ partner**, type `Mariam`, `f`, Enter | Mariam appears beside him with a union dot between them |
+| 3c | Hover **Kunjachan** (who now has a *complete* pair) → **+ partner**, type `Second Wife`, Enter | Added straight away as a **second marriage** — no question, because both seats of the first union are full |
 | 3c | Hover **Ittira** → **+ child**, type `Chacko`, `m`, Enter | Chacko hangs below the union dot — not off either parent |
 | 4 | Hover **Chacko** → click **+ partner** (right), type `Annamma`, `f`, Enter | Annamma appears beside him with their own union dot |
 | 5 | Hover **Chacko** → click **+ child** (below), type `Thomas`, `m`, then **Tab** | Thomas commits and a *new empty box* opens immediately for the next sibling |
@@ -128,7 +131,8 @@ second marriage, an unknown parent, the Tab sibling flow, an undo and an inline 
 | 7 | Hover **Chacko** → **+ partner** again, type `Saramma`, `f`, Enter | A **second union dot** beside the first — the remarriage |
 | 8 | Hover **Chacko** → **+ child** | The two union dots highlight and a bar asks *"Which marriage?"*. **Nothing is created yet** |
 | 9 | Tap the **second** (right-hand) union dot, type `Joseph`, `m`, Enter | Joseph hangs off the second marriage — a half-sibling, drawn under its own union |
-| 9b | Hover **Mariam** → **+ child** | Both her union dots highlight too (she is in Ittira's union) — tap the one you mean | Varkey attaches via a **single-partner union** (father unknown) |
+| 9b | Hover **Mariam** → **+ child** | Both her union dots highlight too (she is in Ittira's union) — tap the one you mean |
+| 9c | Make a lone parent: **+ child** on someone with no union, then **+ partner** on that same person | **"Where does X belong?"** — offering *"The other parent — Parent of \<child\>"* or *"A separate marriage"*. Choose the first: the child now has two parents through one union. Choose the second and it is a remarriage instead | Varkey attaches via a **single-partner union** (father unknown) |
 | 10 | Hover **Ittira** (who has no parents recorded) → click **+ parents** (above), type `Kunjachan`, `m`, Enter | A third generation appears above, with Ittira now hanging from a new union |
 | 10b | Hover **Chacko** → look above his card | **No + parents button** — hidden because he already hangs from Ittira's union. A second set of parents is not something this model can express, so it is not offered |
 | 11 | Click **Jose**'s year chip, type `1970`, save | The card shows `1970` |

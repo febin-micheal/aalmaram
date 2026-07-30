@@ -995,4 +995,103 @@ check('the focus ring does not change the card geometry', () => {
   assert.ok(CARD_GAP > ringInset * 2, 'the ring must fit in the gap between cards')
 })
 
+// -------------------------------------------------- completing a pair of parents
+
+console.log('\nthe second parent')
+
+/** me -> + parents -> father in a single-partner union. The starting point of the bug. */
+function meAndFather() {
+  const node = (id, name, generation, gender) => ({
+    id, name_en: name, name_ml: '', display_name: name, house_name: '', gender,
+    is_living: true, birth_display: '?', death_display: '?', lifespan_compact: '',
+    place_origin: '', generation, hidden_up: 0, hidden_down: 0,
+  })
+  return {
+    persons: [node('me', 'Febin', 0, 'male'), node('father', 'Micheal', -1, 'male')],
+    unions: [{ id: 'u_parents', union_type: 'marriage', status: 'unknown', year_display: '', place: '', generation: -1 }],
+    memberships: [
+      { union: 'u_parents', person: 'father', role: 'partner', relation_type: 'biological', sibling_order: null },
+      { union: 'u_parents', person: 'me', role: 'child', relation_type: 'biological', sibling_order: 1 },
+    ],
+  }
+}
+
+/** The fix: the mother joins the union that already exists. */
+function withMotherJoined() {
+  const graph = meAndFather()
+  graph.persons.push({
+    id: 'mother', name_en: 'Bincy', name_ml: '', display_name: 'Bincy', house_name: '',
+    gender: 'female', is_living: true, birth_display: '?', death_display: '?',
+    lifespan_compact: '', place_origin: '', generation: -1, hidden_up: 0, hidden_down: 0,
+  })
+  graph.memberships.push({
+    union: 'u_parents', person: 'mother', role: 'partner', relation_type: 'biological', sibling_order: null,
+  })
+  return graph
+}
+
+/** The bug: the mother in a union of her own. */
+function withMotherAsSeparateMarriage() {
+  const graph = meAndFather()
+  graph.persons.push({
+    id: 'mother', name_en: 'Bincy', name_ml: '', display_name: 'Bincy', house_name: '',
+    gender: 'female', is_living: true, birth_display: '?', death_display: '?',
+    lifespan_compact: '', place_origin: '', generation: -1, hidden_up: 0, hidden_down: 0,
+  })
+  graph.unions.push({ id: 'u_second', union_type: 'marriage', status: 'unknown', year_display: '', place: '', generation: -1 })
+  graph.memberships.push(
+    { union: 'u_second', person: 'father', role: 'partner', relation_type: 'biological', sibling_order: null },
+    { union: 'u_second', person: 'mother', role: 'partner', relation_type: 'biological', sibling_order: null },
+  )
+  return graph
+}
+
+check('a father alone leaves an open seat beside him', () => {
+  const layout = layoutGraph(meAndFather(), 'me')
+  const union = layout.unions.get('u_parents')
+  assert.equal(union.partnerIds.length, 1, 'one recorded partner')
+  assert.deepEqual(union.childIds, ['me'])
+})
+
+check('joining the mother puts both parents over ONE union', () => {
+  const layout = layoutGraph(withMotherJoined(), 'me')
+
+  assert.equal(layout.unions.size, 1, 'completing a pair must not add a second union')
+  const union = layout.unions.get('u_parents')
+  assert.deepEqual([...union.partnerIds].sort(), ['father', 'mother'])
+  assert.deepEqual(union.childIds, ['me'])
+
+  // Both parents on the same row, the child below, one union dot between.
+  assert.equal(layout.persons.get('mother').y, layout.persons.get('father').y)
+  assert.ok(layout.persons.get('me').y > union.y)
+  assert.ok(rowsDoNotOverlap(layout))
+})
+
+check('the child connects to the union that holds both parents', () => {
+  const layout = layoutGraph(withMotherJoined(), 'me')
+  const edge = layout.edges.find((e) => e.kind === 'child' && e.personId === 'me')
+  assert.equal(edge.unionId, 'u_parents')
+  // And both parents connect to that same union.
+  const partnerEdges = layout.edges.filter((e) => e.kind === 'partner' && e.unionId === 'u_parents')
+  assert.equal(partnerEdges.length, 2)
+})
+
+check('the bug is visibly different: two unions, and the child under only one', () => {
+  // This is what the old behaviour produced. Keeping it as a check documents the
+  // difference the UI has to make askable.
+  const layout = layoutGraph(withMotherAsSeparateMarriage(), 'me')
+  assert.equal(layout.unions.size, 2, 'the wrong answer creates a second union')
+  assert.deepEqual(layout.unions.get('u_second').childIds, [], 'the mother parents nobody')
+  const edge = layout.edges.find((e) => e.kind === 'child' && e.personId === 'me')
+  assert.notEqual(edge.unionId, 'u_second')
+})
+
+check('the second-parent input opens beside the first, not on top of it', () => {
+  // "+ parents" chains straight into the other seat, so the offset must clear the card.
+  const first = draftPosition('parent_of', { x: 0, y: 400 })
+  const second = { x: first.x + CARD_W + 26, y: first.y }
+  assert.ok(second.x - first.x >= CARD_W, 'the two inputs must not overlap')
+  assert.equal(second.y, first.y, 'both parents sit on one row')
+})
+
 console.log(`\n${passed} check(s) passed`)

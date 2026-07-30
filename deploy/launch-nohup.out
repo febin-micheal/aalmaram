@@ -31,3 +31,7 @@
 2026-07-30T20:26:57Z  attempt 20 (1 OCPU / 6 GB): out of capacity  [capacity:20 throttle:0 transport:5]
 2026-07-30T20:34:32Z  attempt 21 (1 OCPU / 6 GB): out of capacity  [capacity:21 throttle:0 transport:5]
 2026-07-30T20:42:04Z  attempt 22 (1 OCPU / 6 GB): out of capacity  [capacity:22 throttle:0 transport:5]
+2026-07-30T20:49:34Z  attempt 23 (1 OCPU / 6 GB): out of capacity  [capacity:23 throttle:0 transport:5]
+2026-07-30T20:57:14Z  attempt 24 (2 OCPU / 12 GB): out of capacity  [capacity:24 throttle:0 transport:5]
+2026-07-30T21:04:11Z  attempt 25 (1 OCPU / 6 GB): out of capacity  [capacity:25 throttle:0 transport:5]
+2026-07-30T21:11:27Z  attempt 26: throttled (429) — backing off 900s, not counted

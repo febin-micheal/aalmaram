@@ -111,6 +111,10 @@ export const updatePerson = (id, fields) => send('PATCH', `/persons/${id}/`, fie
 /** Undo a creation. 409 `not_provisional` means the node has grown edges of its own. */
 export const deletePerson = (id) => send('DELETE', `/persons/${id}/`)
 
+/** Detach a partner from a union — the inverse of joining an existing person to one. */
+export const leaveUnion = (unionId, personId) =>
+  send('DELETE', `/unions/${unionId}/partners/${personId}/`)
+
 /** Who the signed-in user is, and which Person they are anchored to. */
 export const fetchMe = () => get('/me/')
 

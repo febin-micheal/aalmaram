@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react'
  * Keys: Enter commits, Tab commits and opens the next sibling, Escape cancels. m and f set
  * gender when the field is empty — a single keystroke rather than a control to aim at.
  */
-export default function InlineInput({ screenX, screenY, busy, onCommit, onCancel, t }) {
+export default function InlineInput({ screenX, screenY, busy, hint, onCommit, onCancel, t }) {
   const [value, setValue] = useState('')
   const [gender, setGender] = useState('unknown')
   const input = useRef(null)
@@ -65,7 +65,7 @@ export default function InlineInput({ screenX, screenY, busy, onCommit, onCancel
         <GenderToggle value={gender} onChange={setGender} t={t} />
       </div>
       <p className="mt-1 rounded bg-[var(--card-bg)] px-2 py-0.5 text-[11px] opacity-70 shadow">
-        {t('edit.hint')}
+        {hint ?? t('edit.hint')}
       </p>
     </div>
   )

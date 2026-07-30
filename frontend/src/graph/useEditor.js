@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 
-import { createPerson, deletePerson, updatePerson } from '../api.js'
+import { createPerson, deletePerson, leaveUnion, updatePerson } from '../api.js'
 import { draftPosition } from './draftPlacement.js'
 import { CARD_H, CARD_W } from './layout.js'
 
@@ -23,7 +23,7 @@ import { CARD_H, CARD_W } from './layout.js'
  * undo cannot become an accidental delete button.
  */
 
-const IDLE = { mode: 'idle', draft: null, candidateUnions: [], error: null }
+const IDLE = { mode: 'idle', draft: null, candidateUnions: [], openSeats: [], error: null }
 
 export function useEditor({ onApplied, onRemoved, onError }) {
   const [state, setState] = useState(IDLE)
@@ -63,18 +63,40 @@ export function useEditor({ onApplied, onRemoved, onError }) {
       }
 
       const payload = {
-        context: draft.unionId ? 'child_of_union' : draft.context,
+        context: draft.unionId ? draft.unionContext ?? 'child_of_union' : draft.context,
         name_en: name.trim(),
         gender,
       }
       if (draft.unionId) payload.union = draft.unionId
       else if (draft.context !== 'standalone') payload.target = draft.targetId
+      if (draft.forceNewUnion) payload.force_new_union = true
 
       setBusy(true)
       try {
         const created = await createPerson(payload)
         lastCreated.current = created
         onApplied?.(created)
+
+        // "+ parents" opens the second seat straight away: father, Tab, mother, Enter.
+        // The common case therefore never reaches the open-seat question at all.
+        if (draft.context === 'parent_of' && created.union) {
+          setState({
+            mode: 'placing',
+            draft: {
+              context: 'partner_in_union',
+              unionContext: 'partner_in_union',
+              anchor: draft.anchor,
+              targetId: draft.targetId,
+              unionId: created.union,
+              position: { x: draft.position.x + CARD_W + 26, y: draft.position.y },
+              secondParent: true,
+            },
+            candidateUnions: [],
+            openSeats: [],
+            error: null,
+          })
+          return created
+        }
 
         if (andSibling) {
           // Straight into the next sibling on the same union: five names, five Enters.
@@ -100,6 +122,19 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         }
         return created
       } catch (error) {
+        if (error.code === 'open_partner_slot') {
+          // "The other parent of those children" and "a second marriage" are different
+          // facts. Ask, and send nothing more until answered.
+          setState((current) => ({
+            ...current,
+            mode: 'choosing-seat',
+            openSeats: error.unions ?? [],
+            error: null,
+            pendingName: name.trim(),
+            pendingGender: gender,
+          }))
+          return null
+        }
         if (error.code === 'ambiguous_union') {
           // The one case where the UI must ask rather than retry. No further request is
           // made until a union dot is tapped.
@@ -152,13 +187,51 @@ export function useEditor({ onApplied, onRemoved, onError }) {
     [state, onApplied, onError],
   )
 
+  /** Answer the open-seat question: join this union, or start a new marriage. */
+  const resolveSeat = useCallback(
+    async (unionId) => {
+      const { draft, pendingName, pendingGender } = state
+      if (!pendingName) return null
+
+      setBusy(true)
+      try {
+        const created = await createPerson(
+          unionId
+            ? { context: 'partner_in_union', union: unionId, name_en: pendingName, gender: pendingGender }
+            : {
+                context: 'partner_of',
+                target: draft?.targetId,
+                name_en: pendingName,
+                gender: pendingGender,
+                force_new_union: true,
+              },
+        )
+        lastCreated.current = created
+        onApplied?.(created)
+        setState(IDLE)
+        return created
+      } catch (error) {
+        setState(IDLE)
+        onError?.(error.detail ?? error.message)
+        return null
+      } finally {
+        setBusy(false)
+      }
+    },
+    [state, onApplied, onError],
+  )
+
   /** Single-step undo: the inverse API call for the node just created. */
   const undo = useCallback(async () => {
     const created = lastCreated.current
     if (!created) return false
     setBusy(true)
     try {
-      const removed = await deletePerson(created.person.id)
+      // Joining someone already in the graph must not delete them: they are somebody
+      // else's relative and existed before this step.
+      const removed = created.created_person === false
+        ? await leaveUnion(created.union, created.person.id)
+        : await deletePerson(created.person.id)
       lastCreated.current = null
       onRemoved?.(removed, created)
       return true
@@ -200,6 +273,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
     cancel,
     commit,
     chooseUnion,
+    resolveSeat,
     undo,
     editPerson,
     forgetUndo: () => {

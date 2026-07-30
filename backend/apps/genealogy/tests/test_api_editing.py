@@ -99,7 +99,9 @@ def test_add_partner_creates_a_new_union(staff_client, family_a):
     assert response.status_code == 201
     payload = response.json()
 
-    assert set(payload) == {"person", "union", "created_unions", "memberships"}
+    # created_person tells undo whether to delete the person or only detach them.
+    assert set(payload) == {"person", "created_person", "union", "created_unions", "memberships"}
+    assert payload["created_person"] is True
     assert set(payload["person"]) == NODE_FIELDS
     assert payload["person"]["display_name"] == "Anitha"
 

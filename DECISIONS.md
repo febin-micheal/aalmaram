@@ -758,3 +758,61 @@ man is *great-grandfather* / മുതുമുത്തച്ഛൻ.
 Not verified: that the focus bar chips, the ring on the focus person and the chips on the
 cards actually look right and switch cleanly under a real pointer. There is no browser
 here. The click-script is the verification.
+
+## 23. The second parent, and why "+ parents" now asks for both
+
+**Found in real use, not by a test.** The most ordinary sequence there is — me → + parents
+→ father → + partner → mother — recorded the mother as a *separate marriage* of the
+father's rather than as the other parent of the child. Nothing on screen showed the
+difference. The graph looked right and was wrong, and the relationship label proved it:
+the child's `describe_relationship` to their own mother did not say "mother".
+
+That is the worst class of bug this project can have. It is silent, it is in the first
+thirty seconds of use, and the resulting record is indistinguishable by eye from the
+correct one.
+
+### The rule
+
+`+ partner` on someone who has a union with an **open partner seat** no longer creates a
+new union. It raises `OpenPartnerSlot` → 409, listing each candidate union **described by
+its children** — "Parent of Febin", not a UUID, because that is a question a person can
+actually answer. `force_new_union: true` takes the remarriage path deliberately.
+
+This is the same philosophy as the child case (#21): where two readings record different
+facts and cannot be told apart afterwards, the server refuses and asks. Both rules live in
+`create_person_in_context`, so the admin, the bulk form and the canvas cannot drift.
+
+New context `partner_in_union` fills a specific seat, and accepts `existing_person_id` for
+when the other parent is already in the graph from another branch.
+
+### Undo had to learn the difference
+
+Joining an existing relative to a union must **detach, not delete** — they existed before
+the step and are somebody else's relative. The create response now carries
+`created_person`, and undo picks its inverse from it: `DELETE /persons/{id}/` when the step
+created them, `DELETE /unions/{u}/partners/{p}/` when it only attached them.
+
+The existing undo guard also had to be sharpened. It refused whenever a person's union had
+children — which would have blocked undoing a mother joined to a union that already held a
+child, since that child *predates* her. The guard now refuses only when something attached
+**after** the person did, which is the actual question: is there work here that this step
+did not create?
+
+### The real fix is not asking at all
+
+The ambiguity is worth handling, but the common case should never reach it. **"+ parents"
+now opens both seats in sequence**: father, Tab, mother, Enter — one continuous motion,
+with either left blank if unknown. The union is created once and filled twice, so the
+question simply does not arise on the path everybody walks first.
+
+The chooser exists for the cases that genuinely are ambiguous: coming back later to a
+parent entered long ago, or a real remarriage.
+
+### Guards
+
+Seventeen backend tests covering the repro exactly, including the one that would have
+caught it from the outside — *after joining, the child's label for the joined partner must
+be "mother" / "അമ്മ"* — plus a test asserting the old behaviour produces a label that is
+**not** "mother", so the difference stays pinned. Five headless checks compare the fixed
+geometry (one union, both parents, child below) against the bug's (two unions, mother
+parenting nobody).

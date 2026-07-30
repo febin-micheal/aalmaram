@@ -28,6 +28,68 @@ class AlreadyHasParents(Exception):
     """A person can only hang from one union of birth in this UI."""
 
 
+class OpenPartnerSlot(Exception):
+    """The target already has a union with an empty partner seat.
+
+    Adding a partner could mean two completely different things — "this is the other
+    parent of those children" or "this is a second marriage" — and they are not
+    recoverable from each other by looking at the result. The wrong choice silently
+    records a mother as a stranger who happened to marry the father.
+
+    Carries the candidate unions, with their children, so the caller can ask.
+    """
+
+    def __init__(self, unions):
+        #: [{"union": id, "children": [names], "year": str}]
+        self.unions = list(unions)
+        super().__init__("This person has a union with an open partner seat; choose which.")
+
+
+class NotJoinable(Exception):
+    """The union already has both partners, or the person is already in it."""
+
+
+def open_partner_unions(person: Person) -> list[dict]:
+    """Unions where `person` is the only recorded partner — an open seat beside them.
+
+    These are exactly the unions created by "+ parents" and by "+ child on someone with
+    no union": a real parent with an unrecorded spouse. Completing one is the common case;
+    a genuine remarriage is the other.
+    """
+    union_ids = list(
+        UnionMembership.objects.filter(person=person, role=Role.PARTNER).values_list(
+            "union_id", flat=True
+        )
+    )
+    if not union_ids:
+        return []
+
+    partner_counts: dict = {}
+    for union_id in UnionMembership.objects.filter(
+        union_id__in=union_ids, role=Role.PARTNER
+    ).values_list("union_id", flat=True):
+        partner_counts[union_id] = partner_counts.get(union_id, 0) + 1
+
+    open_ids = [uid for uid in union_ids if partner_counts.get(uid, 0) < 2]
+    if not open_ids:
+        return []
+
+    children: dict = {}
+    for union_id, name_en, name_ml in UnionMembership.objects.filter(
+        union_id__in=open_ids, role=Role.CHILD
+    ).values_list("union_id", "person__name_en", "person__name_ml"):
+        children.setdefault(union_id, []).append(name_en or name_ml or "?")
+
+    return [
+        {
+            "union": str(union.id),
+            "children": children.get(union.id, []),
+            "year": union.year_display,
+        }
+        for union in Union.objects.filter(id__in=open_ids).order_by("year_min", "created_at")
+    ]
+
+
 @transaction.atomic
 def create_person_in_context(
     *,
@@ -40,6 +102,8 @@ def create_person_in_context(
     birth: str | None = None,
     house_name: str | None = None,
     relation_type: str = RelationType.BIOLOGICAL,
+    force_new_union: bool = False,
+    existing_person=None,
     user=None,
 ) -> dict:
     """Create one person and wire them into the graph in a named relationship.
@@ -53,7 +117,12 @@ def create_person_in_context(
     * ``standalone``      — no relationships at all. The first person in an empty
       archive has nobody to be related to, and every other context needs an anchor;
       without this the canvas editor cannot start from nothing.
-    * ``partner_of``      — a new union between `target` and the new person
+    * ``partner_of``      — a partner for `target`. Raises OpenPartnerSlot when `target`
+      already has a union with an empty seat, because "the other parent of those
+      children" and "a second marriage" are different facts and cannot be told apart
+      afterwards. Pass ``force_new_union=True`` for the remarriage path.
+    * ``partner_in_union`` — the second partner of a *specific* union: the answer to the
+      question above, and what completes a pair of parents
     * ``child_of_union``  — a child of the given `union`
     * ``child_of_person`` — a child of `target`; creates a single-partner union when they
       have none (an unknown other parent is a normal record), attaches to the only one if
@@ -62,6 +131,13 @@ def create_person_in_context(
 
     Returns the created objects so the caller can hand them straight back to the client.
     """
+    # Refuse before creating anything: a person left behind by a rejected call is worse
+    # than the rejection.
+    if context == "partner_of" and target is not None and not force_new_union:
+        candidates = open_partner_unions(target)
+        if candidates:
+            raise OpenPartnerSlot(candidates)
+
     house = (house_name or "").strip()
     fields = {
         "name_en": (name_en or "").strip(),
@@ -73,7 +149,13 @@ def create_person_in_context(
     # An unparseable year raises rather than silently storing nothing.
     fields |= parse_year_input(birth).as_fields("birth")
 
-    person = Person.objects.create(**fields)
+    if existing_person is not None:
+        person = existing_person
+        created_person = False
+    else:
+        person = Person.objects.create(**fields)
+        created_person = True
+
     created_unions: list[Union] = []
     memberships: list[UnionMembership] = []
 
@@ -94,6 +176,15 @@ def create_person_in_context(
         union = Union.objects.create(created_by=user)
         created_unions.append(union)
         join(union, target, Role.PARTNER)
+        join(union, person, Role.PARTNER)
+
+    elif context == "partner_in_union":
+        _require(union, "partner_in_union needs a union")
+        seats = UnionMembership.objects.filter(union=union, role=Role.PARTNER)
+        if seats.count() >= 2:
+            raise NotJoinable("That union already has both partners recorded.")
+        if seats.filter(person=person).exists():
+            raise NotJoinable("That person is already a partner in this union.")
         join(union, person, Role.PARTNER)
 
     elif context == "child_of_union":
@@ -137,6 +228,9 @@ def create_person_in_context(
         "union": union,
         "created_unions": created_unions,
         "memberships": memberships,
+        # Undo has to know whether to delete the person or only detach them: joining an
+        # existing relative to a union must never delete that relative.
+        "created_person": created_person,
     }
 
 
@@ -216,14 +310,22 @@ def delete_provisional_person(person: Person) -> dict:
     if len(memberships) > 1:
         reasons.append(f"is in {len(memberships)} unions")
 
-    # Children of any union this person partners in are other people's records.
+    # Anything that attached *after* this person did is somebody else's work; anything
+    # that was already there is not evidence against undoing them.
+    #
+    # The distinction matters for the second-parent flow: joining a mother to a union that
+    # already holds a child must stay undoable, because that child predates her and was
+    # not created by the step being undone. Counting children outright would refuse it.
     partner_unions = [m.union_id for m in memberships if m.role == Role.PARTNER]
-    if partner_unions:
-        child_count = UnionMembership.objects.filter(
-            union_id__in=partner_unions, role=Role.CHILD
-        ).count()
-        if child_count:
-            reasons.append(f"has {child_count} child(ren)")
+    if partner_unions and memberships:
+        joined_at = min(m.created_at for m in memberships)
+        newer = (
+            UnionMembership.objects.filter(union_id__in=partner_unions, created_at__gt=joined_at)
+            .exclude(person=person)
+            .count()
+        )
+        if newer:
+            reasons.append(f"has {newer} relative(s) recorded since")
 
     if Claim.objects.filter(
         subject_type=ContentType.objects.get_for_model(Person), subject_id=person.pk
@@ -358,3 +460,37 @@ def create_family_unit(data, user) -> tuple[Union, list[Person]]:
             created_by=user,
         )
     return union, created
+
+
+@transaction.atomic
+def leave_union(person: Person, union: Union) -> dict:
+    """Undo a "joined an existing union" — detach, do not delete.
+
+    The inverse of `partner_in_union` when the person was already in the graph. Refuses
+    once anything has attached to the union since they joined: undo takes back the step
+    you just took, and a child recorded afterwards is somebody else's work.
+    """
+    membership = UnionMembership.objects.filter(
+        union=union, person=person, role=Role.PARTNER
+    ).first()
+    if membership is None:
+        raise NotProvisional("That person is not a partner in this union.")
+
+    newer = UnionMembership.objects.filter(
+        union=union, created_at__gt=membership.created_at
+    ).count()
+    if newer:
+        raise NotProvisional(
+            f"Cannot undo: {newer} more member(s) were added to this union afterwards."
+        )
+
+    membership.delete()
+    removed_unions = []
+    remaining = UnionMembership.objects.filter(union=union)
+    if (
+        not remaining.filter(role=Role.CHILD).exists()
+        and remaining.filter(role=Role.PARTNER).count() < 1
+    ):
+        removed_unions.append(str(union.pk))
+        union.delete()
+    return {"person": str(person.pk), "unions": removed_unions, "detached_only": True}
