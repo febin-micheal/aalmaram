@@ -807,4 +807,94 @@ check('screen and graph coordinates round-trip', () => {
   assert.ok(Math.abs(back.x - point.x) < 0.001 && Math.abs(back.y - point.y) < 0.001)
 })
 
+// ------------------------------------------------- the empty -> first person path
+
+console.log('\nstarting from an empty archive')
+
+// This section exists because of a real regression: the empty-database screen kept
+// pointing at the bulk form long after the canvas became the editor, and nothing caught
+// it. The whole point of the state is to be the first thing a new archive shows.
+
+check('an empty archive lays out to nothing, without throwing', () => {
+  assert.equal(layoutOverview({ persons: [], unions: [], memberships: [] }), null)
+  // The canvas must still be renderable in that state — the first person is placed *on*
+  // it, so a null layout cannot mean "no sheet".
+  assert.equal(layoutGraph({ persons: [], unions: [], memberships: [] }, null).persons.size, 0)
+})
+
+check('the first person is placed at the origin, needing no anchor', () => {
+  // Every other affordance grows from an existing card. This one cannot.
+  const position = draftPosition('standalone', null)
+  assert.deepEqual(position, { x: 0, y: 0 })
+  // And an anchor, if one is somehow passed, is ignored rather than shifting it away.
+  assert.deepEqual(draftPosition('standalone', { x: 900, y: -400 }), { x: 0, y: 0 })
+})
+
+check('a one-person archive draws a real card with room for its affordances', () => {
+  const solo = {
+    persons: [{
+      id: 'first', name_en: 'Ittira', name_ml: '', display_name: 'Ittira',
+      house_name: 'Kavunkal', gender: 'male', is_living: false, birth_display: '1890',
+      death_display: '?', lifespan_compact: '1890 – ?', place_origin: '',
+      generation: 0, hidden_up: 0, hidden_down: 0,
+    }],
+    unions: [],
+    memberships: [],
+  }
+  const layout = layoutGraph(solo, 'first')
+  assert.equal(layout.persons.size, 1)
+
+  const person = layout.persons.get('first')
+  assert.ok(Number.isFinite(person.x) && Number.isFinite(person.y))
+  // No parents recorded, so "+ parents" must be offered rather than hidden.
+  assert.equal((layout.unionsAsChild.get('first') ?? []).length, 0)
+  // The card plus its affordances has to fit a phone.
+  assert.ok(CARD_W + 6 + AFFORDANCE_HIT <= PHONE.width)
+})
+
+check('the first person fits on screen at any viewport', () => {
+  const solo = {
+    persons: [{
+      id: 'first', name_en: 'Ittira', name_ml: '', display_name: 'Ittira', house_name: '',
+      gender: 'male', is_living: true, birth_display: '?', death_display: '?',
+      lifespan_compact: '', place_origin: '', generation: 0, hidden_up: 0, hidden_down: 0,
+    }],
+    unions: [],
+    memberships: [],
+  }
+  const layout = layoutGraph(solo, 'first')
+  for (const viewport of [PHONE, PHONE_LANDSCAPE, DESKTOP]) {
+    const transform = fitTransform(layout.bounds, viewport)
+    assert.ok(transform, 'fit must produce a transform for a single node')
+    assert.equal(renderModeFor(transform.k), 'cards', 'one person should show as a card, not a dot')
+  }
+})
+
+check('growing from the first person produces correct geometry at each step', () => {
+  // nothing -> one person -> + partner -> + child: the click-script's opening moves.
+  let graph = {
+    persons: [{
+      id: 'first', name_en: 'Ittira', name_ml: '', display_name: 'Ittira', house_name: '',
+      gender: 'male', is_living: false, birth_display: '1890', death_display: '?',
+      lifespan_compact: '', place_origin: '', generation: 0, hidden_up: 0, hidden_down: 0,
+    }],
+    unions: [],
+    memberships: [],
+  }
+
+  graph = afterAdding(graph, { context: 'partner_of', anchorId: 'first', id: 'spouse', name: 'Mariam' })
+  let layout = layoutGraph(graph, 'first')
+  assert.equal(layout.persons.get('spouse').y, layout.persons.get('first').y, 'partners share a row')
+  assert.equal(layout.unions.size, 1, 'a union node must appear between them')
+
+  const unionId = [...layout.unions.keys()][0]
+  graph = afterAdding(graph, { context: 'child_of_union', anchorId: 'first', unionId, id: 'kid', name: 'Chacko' })
+  layout = layoutGraph(graph, 'first')
+
+  assert.ok(layout.persons.get('kid').y > layout.persons.get('first').y, 'child sits below')
+  const edge = layout.edges.find((e) => e.kind === 'child' && e.personId === 'kid')
+  assert.equal(edge.unionId, unionId, 'the child hangs off the union, not off a parent')
+  assert.ok(rowsDoNotOverlap(layout))
+})
+
 console.log(`\n${passed} check(s) passed`)

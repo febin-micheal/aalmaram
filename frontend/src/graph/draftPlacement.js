@@ -12,7 +12,9 @@ import { CARD_W, ROW_PITCH } from './layout.js'
  * in React or the API client.
  */
 export function draftPosition(context, anchor) {
-  if (!anchor) return { x: 0, y: 0 }
+  // The first person in an empty archive has no anchor: place them at the origin, which
+  // is where an un-panned canvas is centred.
+  if (context === 'standalone' || !anchor) return { x: 0, y: 0 }
   switch (context) {
     case 'partner_of':
       return { x: anchor.x + CARD_W + 40, y: anchor.y }

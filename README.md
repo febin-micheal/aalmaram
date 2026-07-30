@@ -116,17 +116,20 @@ second marriage, an unknown parent, the Tab sibling flow, an undo and an inline 
 
 | # | Do | Expect |
 | --- | --- | --- |
-| 1 | `make reset-db` (type `YES`), reload http://localhost:5173/ | The **"No family recorded yet"** screen |
-| 2 | Click **Add the first household**, enter partners `Ittira` / `Mariam`, one child `Chacko`, save | The graph opens on that household |
-| 3 | Hover **Chacko** → click **+ partner** (right), type `Annamma`, `f`, Enter | Annamma appears beside him with a union dot between them |
-| 4 | Hover **Chacko** → click **+ child** (below), type `Thomas`, `m`, then **Tab** | Thomas commits and a *new empty box* opens immediately for the next sibling |
-| 5 | Type `Rosy`, `f`, Tab → `Mini`, `f`, Tab → `Jose`, `m`, **Enter** | Four siblings, left to right in the order typed, all hanging off the one union |
-| 6 | Hover **Chacko** → **+ partner** again, type `Saramma`, `f`, Enter | A **second union dot** beside the first — the remarriage |
-| 7 | Hover **Chacko** → **+ child** | The two union dots highlight and a bar asks *"Which marriage?"*. **Nothing is created yet** |
-| 8 | Tap the **second** (right-hand) union dot, type `Joseph`, `m`, Enter | Joseph hangs off the second marriage — a half-sibling, drawn under its own union |
-| 9 | Hover **Mariam** → **+ child**, type `Varkey`, `m`, Enter | Varkey attaches via a **single-partner union** (father unknown) |
-| 10 | Hover **Ittira** (the oldest, who has no parents recorded) → click **+ parents** (above), type `Kunjachan`, `m`, Enter | A third generation appears above, with Ittira now hanging from a new union |
-| 10b | Hover **Chacko** → look above his card | **No + parents button** — it is hidden because he already hangs from Ittira's union. A second set of parents is not something this model can express, so it is not offered |
+| 1 | `make reset-db` (type `YES`), reload http://localhost:5173/ | The **"No family recorded yet"** screen, with **Add the first person** and a smaller *"Or add a whole household from a form"* below it |
+| 2 | Click **Add the first person** | The empty screen gives way to the **canvas**, with a name box already focused at the centre — no dialog |
+| 3 | Type `Ittira`, press `m`, Enter | A single card on the sheet. Hover it: **+ partner** right, **+ child** below, **+ parents** above |
+| 3b | Hover **Ittira** → **+ partner**, type `Mariam`, `f`, Enter | Mariam appears beside him with a union dot between them |
+| 3c | Hover **Ittira** → **+ child**, type `Chacko`, `m`, Enter | Chacko hangs below the union dot — not off either parent |
+| 4 | Hover **Chacko** → click **+ partner** (right), type `Annamma`, `f`, Enter | Annamma appears beside him with their own union dot |
+| 5 | Hover **Chacko** → click **+ child** (below), type `Thomas`, `m`, then **Tab** | Thomas commits and a *new empty box* opens immediately for the next sibling |
+| 6 | Type `Rosy`, `f`, Tab → `Mini`, `f`, Tab → `Jose`, `m`, **Enter** | Four siblings, left to right in the order typed, all hanging off the one union |
+| 7 | Hover **Chacko** → **+ partner** again, type `Saramma`, `f`, Enter | A **second union dot** beside the first — the remarriage |
+| 8 | Hover **Chacko** → **+ child** | The two union dots highlight and a bar asks *"Which marriage?"*. **Nothing is created yet** |
+| 9 | Tap the **second** (right-hand) union dot, type `Joseph`, `m`, Enter | Joseph hangs off the second marriage — a half-sibling, drawn under its own union |
+| 9b | Hover **Mariam** → **+ child** | Both her union dots highlight too (she is in Ittira's union) — tap the one you mean | Varkey attaches via a **single-partner union** (father unknown) |
+| 10 | Hover **Ittira** (who has no parents recorded) → click **+ parents** (above), type `Kunjachan`, `m`, Enter | A third generation appears above, with Ittira now hanging from a new union |
+| 10b | Hover **Chacko** → look above his card | **No + parents button** — hidden because he already hangs from Ittira's union. A second set of parents is not something this model can express, so it is not offered |
 | 11 | Click **Jose**'s year chip, type `1970`, save | The card shows `1970` |
 | 12 | Click **Jose**, then **Edit details** in the side panel, change the name to `Joseph K`, save | The card renames in place |
 | 13 | Add one more child anywhere, then press **Ctrl+Z** | The node disappears and a toast says *Undone* |

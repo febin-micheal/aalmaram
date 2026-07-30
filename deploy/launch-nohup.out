@@ -27,3 +27,5 @@
 2026-07-30T20:04:27Z  attempt 18 (2 OCPU / 12 GB): out of capacity  [capacity:18 throttle:0 transport:3]
 2026-07-30T20:11:59Z  attempt 19: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
 2026-07-30T20:15:44Z  attempt 19 (1 OCPU / 6 GB): out of capacity  [capacity:19 throttle:0 transport:4]
+2026-07-30T20:22:49Z  attempt 20: transport failure (connection/DNS/TLS) — retrying in 120s, not counted
+2026-07-30T20:26:57Z  attempt 20 (1 OCPU / 6 GB): out of capacity  [capacity:20 throttle:0 transport:5]

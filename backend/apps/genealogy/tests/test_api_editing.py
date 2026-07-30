@@ -445,3 +445,99 @@ def test_canvas_and_quick_add_produce_the_same_structure(staff_client):
         canvas.memberships.filter(role=Role.CHILD).count()
         == form_union.memberships.filter(role=Role.CHILD).count()
     )
+
+
+# ------------------------------------------------- the first person in an archive
+
+
+def test_the_first_person_can_be_created_with_no_relationships(staff_client):
+    """An empty archive has no anchor, and every other context requires one.
+
+    Without this the canvas editor cannot start from nothing — which is exactly the state
+    the owner is in straight after `make reset-db`.
+    """
+    assert Person.objects.count() == 0
+
+    response = create(
+        staff_client,
+        context="standalone",
+        name_en="Ittira",
+        gender="male",
+        birth="1890",
+        house_name="Kavunkal",
+    )
+    assert response.status_code == 201
+
+    payload = response.json()
+    assert payload["union"] is None
+    assert payload["created_unions"] == []
+    assert payload["memberships"] == []
+
+    ittira = Person.objects.get()
+    assert ittira.name_en == "Ittira"
+    assert ittira.birth_year_min == 1890
+    assert ittira.house_name == "Kavunkal"
+    assert UnionMembership.objects.count() == 0, "a lone person belongs to no union yet"
+
+
+def test_standalone_needs_neither_target_nor_union(staff_client, family_a):
+    """Passing an anchor is not required, and a stray one is simply ignored."""
+    assert create(staff_client, context="standalone", name_en="Alone").status_code == 201
+
+
+def test_the_first_person_appears_in_the_overview(staff_client):
+    """The empty state must become a one-person graph, not stay empty."""
+    assert staff_client.get("/api/v1/overview/").json()["stats"]["persons"] == 0
+
+    create(staff_client, context="standalone", name_en="Ittira")
+
+    payload = staff_client.get("/api/v1/overview/").json()
+    assert payload["stats"]["persons"] == 1
+    assert payload["stats"]["components"] == 1
+    assert payload["persons"][0]["display_name"] == "Ittira"
+
+
+def test_a_whole_family_grows_from_one_standalone_person(staff_client):
+    """The path the click-script walks: nothing -> one person -> a three-generation family."""
+    root = create(staff_client, context="standalone", name_en="Ittira", gender="male").json()
+    root_id = root["person"]["id"]
+
+    # + partner
+    spouse = create(
+        staff_client, context="partner_of", target=root_id, name_en="Mariam", gender="female"
+    ).json()
+    union_id = spouse["union"]
+    assert union_id is not None
+
+    # + child, three of them, in order
+    for name in ["Chacko", "Eliyamma", "Devassy"]:
+        assert (
+            create(staff_client, context="child_of_union", union=union_id, name_en=name).status_code
+            == 201
+        )
+
+    # + parents above the root
+    assert (
+        create(
+            staff_client, context="parent_of", target=root_id, name_en="Kunjachan", gender="male"
+        ).status_code
+        == 201
+    )
+
+    assert Person.objects.count() == 6
+    orders = list(
+        UnionMembership.objects.filter(union_id=union_id, role=Role.CHILD)
+        .order_by("sibling_order")
+        .values_list("person__name_en", flat=True)
+    )
+    assert orders == ["Chacko", "Eliyamma", "Devassy"]
+
+    # And the root now hangs from its own union of birth.
+    assert UnionMembership.objects.filter(person_id=root_id, role=Role.CHILD).exists()
+
+
+def test_undo_works_on_the_very_first_person(staff_client):
+    """Nothing references them, so taking the first person back must be allowed."""
+    created = create(staff_client, context="standalone", name_en="Mistake").json()
+    assert staff_client.delete(person_url(created["person"]["id"])).status_code == 200
+    assert Person.objects.count() == 0

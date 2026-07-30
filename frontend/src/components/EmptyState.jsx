@@ -1,10 +1,14 @@
 /**
  * What the owner sees after `make reset-db`: an empty database.
  *
- * This is the screen that turns "I have nothing" into "I have one household", so it does
- * exactly one thing loudly and explains what the first step actually is.
+ * The primary action starts the **canvas** flow — one person placed on the sheet, grown
+ * outwards with the same + partner / + child / + parents affordances used everywhere else.
+ * Sending someone to a form here would teach them the wrong thing about how the app works,
+ * and they would have to unlearn it the moment they added a second household.
+ *
+ * The bulk form stays reachable, second, for when you already have a list of names.
  */
-export default function EmptyState({ t, onAddHousehold }) {
+export default function EmptyState({ t, onAddFirstPerson, onUseForm }) {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-6 px-6 text-center">
       <div className="space-y-2">
@@ -19,10 +23,18 @@ export default function EmptyState({ t, onAddHousehold }) {
 
       <button
         type="button"
-        onClick={onAddHousehold}
+        onClick={onAddFirstPerson}
         className="mx-auto rounded-lg bg-[var(--accent-strong)] px-6 py-4 text-lg font-medium text-white"
       >
         {t('empty.cta')}
+      </button>
+
+      <button
+        type="button"
+        onClick={onUseForm}
+        className="mx-auto text-sm underline opacity-70 hover:opacity-100"
+      >
+        {t('empty.useForm')}
       </button>
 
       <p className="text-sm opacity-60">{t('empty.hint')}</p>

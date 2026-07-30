@@ -68,7 +68,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         gender,
       }
       if (draft.unionId) payload.union = draft.unionId
-      else payload.target = draft.targetId
+      else if (draft.context !== 'standalone') payload.target = draft.targetId
 
       setBusy(true)
       try {

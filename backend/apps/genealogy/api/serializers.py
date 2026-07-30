@@ -86,7 +86,7 @@ class CreatePersonSerializer(serializers.Serializer):
     and any future caller cannot drift apart on it.
     """
 
-    CONTEXTS = ("partner_of", "child_of_union", "child_of_person", "parent_of")
+    CONTEXTS = ("standalone", "partner_of", "child_of_union", "child_of_person", "parent_of")
 
     context = serializers.ChoiceField(choices=CONTEXTS)
     #: The person the affordance was clicked on (all contexts except child_of_union).
@@ -106,7 +106,10 @@ class CreatePersonSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         context = attrs["context"]
-        if context == "child_of_union":
+        if context == "standalone":
+            # The first person in an empty archive is related to nobody yet.
+            pass
+        elif context == "child_of_union":
             if not attrs.get("union"):
                 raise serializers.ValidationError({"union": "child_of_union needs a union id."})
             if not Union.objects.filter(pk=attrs["union"]).exists():

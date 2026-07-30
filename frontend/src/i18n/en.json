@@ -56,8 +56,8 @@
   "graph.modeDots": "overview",
   "graph.modeCards": "detail",
   "empty.heading": "No family recorded yet",
-  "empty.body": "The database is empty. Start with one household — two partners and their children — and the graph grows from there.",
-  "empty.cta": "Add the first household",
+  "empty.body": "The database is empty. Start with one person — then grow the family outwards from their card with + partner, + child and + parents.",
+  "empty.cta": "Add the first person",
   "empty.hint": "Working on the demo instead? Run `make seed` for a fictional family.",
   "panel.addHousehold": "Add family",
   "panel.edit": "Edit",
@@ -94,5 +94,6 @@
   "edit.yearPlaceholder": "1938, 1930s, c. 1940, ?",
   "edit.yearHelp": "A decade or a guess is fine. Leave blank or type ? if unknown.",
   "edit.nameEn": "Name (English)",
-  "edit.nameMl": "Name (Malayalam)"
+  "edit.nameMl": "Name (Malayalam)",
+  "empty.useForm": "Or add a whole household from a form"
 }

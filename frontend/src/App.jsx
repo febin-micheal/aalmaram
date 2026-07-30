@@ -38,6 +38,9 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [activeId, setActiveId] = useState(null)
   const [yearEditFor, setYearEditFor] = useState(null)
+  // True once "Add the first person" is clicked on an empty archive: the canvas takes
+  // over from the empty screen even though there is nothing on it yet.
+  const [startingFirstPerson, setStartingFirstPerson] = useState(false)
   const controls = useRef({})
   // Where the anchor sat on screen before a re-layout, so it can be put back.
   const anchorScreen = useRef(null)
@@ -111,6 +114,19 @@ export default function App() {
     anchorScreen.current = null
   }, [layout])
 
+  /**
+   * Begin the very first person, on the canvas rather than in a form.
+   *
+   * Every other affordance grows from an existing card; there is no card yet, so this
+   * uses the `standalone` context and drops the input at the origin of an empty sheet.
+   * From the resulting node, + partner / + child / + parents build out the rest.
+   */
+  const startFirstPerson = useCallback(() => {
+    setStartingFirstPerson(true)
+    editingContext.current = { context: 'standalone', anchorId: null }
+    editor.begin('standalone', null)
+  }, [editor])
+
   const startAdd = useCallback(
     (context, person) => {
       if (mode === 'overview') return // editing happens in the detail view
@@ -130,9 +146,23 @@ export default function App() {
       if (created) {
         showToast(t('edit.added', { name: created.person.display_name }), 'ok')
         overview.refresh().catch(() => {})
+
+        // The first person has nothing to merge into, so load them as the centre —
+        // that is what puts a real card on the canvas with its affordances.
+        if (editingContext.current?.context === 'standalone') {
+          setStartingFirstPerson(false)
+          editingContext.current = null
+          try {
+            await graph.loadCenter(created.person.id, { up: 1, down: 1 })
+            setSelectedId(created.person.id)
+            setActiveId(created.person.id)
+          } catch (error) {
+            handleError(error)
+          }
+        }
       }
     },
-    [editor, rememberAnchor, showToast, t, overview],
+    [editor, rememberAnchor, showToast, t, overview, graph, handleError],
   )
 
   const chooseUnion = useCallback(
@@ -327,10 +357,14 @@ export default function App() {
     )
   }
 
-  if (overview.isEmpty && mode === 'overview') {
+  if (overview.isEmpty && mode === 'overview' && !startingFirstPerson) {
     return (
       <>
-        <EmptyState t={t} onAddHousehold={() => openQuickAdd(null)} />
+        <EmptyState
+          t={t}
+          onAddFirstPerson={startFirstPerson}
+          onUseForm={() => openQuickAdd(null)}
+        />
         {quickAddOpen && (
           <QuickAddDialog
             t={t}
@@ -412,7 +446,10 @@ export default function App() {
             screenY={draftScreen.y}
             busy={editor.busy}
             onCommit={commitDraft}
-            onCancel={editor.cancel}
+            onCancel={() => {
+              editor.cancel()
+              setStartingFirstPerson(false)
+            }}
             t={t}
           />
         )}

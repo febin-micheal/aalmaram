@@ -104,10 +104,9 @@ export default function GraphCanvas({
     }
   }, [layout, bigPicture, transform, viewport])
 
-  if (!layout) {
-    return <div className="flex h-full items-center justify-center opacity-60">{t('graph.empty')}</div>
-  }
-
+  // Deliberately no early return for an empty layout: the first person in an archive is
+  // placed *on* the canvas, so the sheet — and its transform, which the inline input is
+  // positioned against — has to exist before there is anything to draw.
   const highlightedPersons = highlight?.persons ?? new Set()
   const highlightedEdges = highlight?.edges ?? new Set()
   const dimmed = highlightedPersons.size > 0
@@ -124,6 +123,17 @@ export default function GraphCanvas({
       }}
     >
       <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+        {!layout && (
+          <text
+            x={0}
+            y={0}
+            textAnchor="middle"
+            className="fill-[var(--muted)] select-none"
+            style={{ fontSize: 16 }}
+          >
+            {t('graph.empty')}
+          </text>
+        )}
         {/* Edges first so cards always sit on top of their connectors. */}
         <g fill="none" strokeLinejoin="round">
           {drawnEdges.map((edge) => {
@@ -143,7 +153,7 @@ export default function GraphCanvas({
 
         {/* Union nodes: the join a couple's children actually hang from. */}
         <g>
-          {[...layout.unions.values()].map((union) => {
+          {[...(layout?.unions.values() ?? [])].map((union) => {
             const choosing = editor?.mode === 'choosing-union'
             const isCandidate = choosing && editor.candidateUnions?.includes(union.id)
             return (
@@ -221,7 +231,7 @@ export default function GraphCanvas({
                 relateIndex={relateSelection?.indexOf(person.id) ?? -1}
                 isExpanding={expandingId === person.id}
                 isActive={activeId === person.id}
-                hasParents={hasParents(layout, person.id)}
+                hasParents={layout ? hasParents(layout, person.id) : false}
                 onSelect={() => !isDragging() && onSelect(person)}
                 onActivate={() => !isDragging() && onActivate?.(person.id)}
                 onAddRelative={(context) => onAddRelative?.(context, person)}

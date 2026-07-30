@@ -50,6 +50,9 @@ def create_person_in_context(
 
     `context` is one of:
 
+    * ``standalone``      — no relationships at all. The first person in an empty
+      archive has nobody to be related to, and every other context needs an anchor;
+      without this the canvas editor cannot start from nothing.
     * ``partner_of``      — a new union between `target` and the new person
     * ``child_of_union``  — a child of the given `union`
     * ``child_of_person`` — a child of `target`; creates a single-partner union when they
@@ -81,7 +84,12 @@ def create_person_in_context(
         memberships.append(membership)
         return membership
 
-    if context == "partner_of":
+    if context == "standalone":
+        # Nothing to wire. The affordances on the resulting card are how the graph grows
+        # from here.
+        union = None
+
+    elif context == "partner_of":
         _require(target, "partner_of needs a person to partner with")
         union = Union.objects.create(created_by=user)
         created_unions.append(union)

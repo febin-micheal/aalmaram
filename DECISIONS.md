@@ -657,3 +657,24 @@ thousandth of a pixel across four zoom ratios. 446 backend tests.
 the state machine are covered by tests; the *feel* of hover, tap, focus and pinch is not,
 because there is no browser here. The click-script in the README is the real verification
 and has not been run by me.
+
+### Addendum: the empty state was never wired (found after shipping)
+
+Phase 1.75 shipped with the empty-database screen still pointing at the bulk form. The
+container was serving current code — the fault was that the empty branch `return`ed before
+`<GraphCanvas>` was rendered at all, so there was no canvas for the editor to act on.
+
+Behind that sat a real gap rather than a loose wire: **the API had no way to create a
+person with no relationships.** All four contexts required an anchor, because the editor
+was designed as "grow from an existing node" and the one case with no existing node — the
+first person in an empty archive — was never considered. The feature could not have worked
+even if the button had been connected.
+
+Fixed by adding a `standalone` context, making the canvas render with an empty layout (the
+first person is placed *on* the sheet, so a null layout cannot mean "no sheet"), and
+pointing the empty state at the canvas flow with the bulk form kept as a secondary link.
+
+Five headless checks now cover the empty → first-person → grown-family path, including
+that a lone person draws as a card rather than a dot at every viewport and that the first
+`+ partner` / `+ child` produce correct geometry. The regression was invisible to 45
+existing checks because every one of them started from a populated fixture.
