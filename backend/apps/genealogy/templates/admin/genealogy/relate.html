@@ -1,0 +1,48 @@
+{% extends "admin/genealogy/base_graph.html" %}
+{% load i18n %}
+
+{% block graph_content %}
+  {% if result %}
+    <div class="graph-panel">
+      <h2>{{ person_b.display_name }} &rarr; {{ person_a.display_name }}</h2>
+      {% if result.is_related %}
+        <p class="graph-label">{{ result.label_en }}</p>
+        <p class="graph-label">{{ result.label_ml }}</p>
+        <p>
+          {% blocktranslate with other=person_b.display_name subject=person_a.display_name label=result.label_en %}
+            {{ other }} is {{ subject }}'s {{ label }}.
+          {% endblocktranslate %}
+        </p>
+      {% else %}
+        <p class="graph-label">{{ result.label_en }}</p>
+        <p class="graph-empty">
+          {% translate "No shared ancestor was found within the search depth. They may still be connected by marriage, or the linking generation may not be entered yet." %}
+        </p>
+      {% endif %}
+    </div>
+
+    {% for common in result.common_ancestors %}
+      <div class="graph-panel">
+        <h2>
+          {% translate "Common ancestor" %}:
+          <a href="{{ explorer_url }}?person={{ common.person.pk }}&amp;depth=4">{{ common.person.display_name }}</a>
+          <span class="graph-tag">{{ common.person.lifespan_display }}</span>
+        </h2>
+        <p class="graph-path">
+          <strong>{{ person_a.display_name }}</strong> ({{ common.depth_subject }}):
+          {% for step in common.descent_to_subject %}
+            <a href="{{ explorer_url }}?person={{ step.pk }}&amp;depth=4">{{ step.display_name }}</a>{% if not forloop.last %} &rarr; {% endif %}
+          {% endfor %}
+        </p>
+        <p class="graph-path">
+          <strong>{{ person_b.display_name }}</strong> ({{ common.depth_other }}):
+          {% for step in common.descent_to_other %}
+            <a href="{{ explorer_url }}?person={{ step.pk }}&amp;depth=4">{{ step.display_name }}</a>{% if not forloop.last %} &rarr; {% endif %}
+          {% endfor %}
+        </p>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="graph-empty">{% translate "Pick two people to see how they are related." %}</p>
+  {% endif %}
+{% endblock %}

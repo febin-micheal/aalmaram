@@ -1,0 +1,9 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:genealogy_quick_add' %}" class="addlink">{% translate "Quick add a family unit" %}</a></li>
+  <li><a href="{% url 'admin:genealogy_explorer' %}">{% translate "Graph explorer" %}</a></li>
+  <li><a href="{% url 'admin:genealogy_relate' %}">{% translate "How are they related?" %}</a></li>
+  {{ block.super }}
+{% endblock %}

@@ -1,0 +1,43 @@
+@import 'tailwindcss';
+
+/* A paper-and-ink palette: this is a document about a family, not a dashboard. */
+:root {
+  --canvas-bg: #f6f2ea;
+  --card-bg: #fffdf9;
+  --card-border: #ddd4c4;
+  --chip-bg: #efe9dd;
+  --ink: #2b2620;
+  --muted: #7a7266;
+  --edge: #c3b8a4;
+  --edge-strong: #8d7f68;
+  --accent-strong: #1f4d36;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas-bg: #191714;
+    --card-bg: #232019;
+    --card-border: #3e382e;
+    --chip-bg: #2c2820;
+    --ink: #f0ebe1;
+    --muted: #a49a89;
+    --edge: #4d4638;
+    --edge-strong: #7d7360;
+    --accent-strong: #6fae8b;
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--canvas-bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Malayalam', sans-serif;
+}
+
+/* Malayalam needs a little more line box than Latin at the same size. */
+:lang(ml) {
+  line-height: 1.6;
+}

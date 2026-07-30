@@ -1,0 +1,11 @@
+{
+  "name": "Aalmaram",
+  "short_name": "ആൽമരം",
+  "description": "A family remembered together.",
+  "lang": "ml",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf7f2",
+  "theme_color": "#1f4d36"
+}

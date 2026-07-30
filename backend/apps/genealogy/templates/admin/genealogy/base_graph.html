@@ -1,0 +1,50 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{# Shared chrome for the three graph tools. Styling is deliberately minimal — this is #}
+{# Febin's working surface, and function beats beauty here. #}
+
+{% block extrastyle %}
+  {{ block.super }}
+  {{ form.media }}
+  <style>
+    .graph-panel { margin: 0 0 1.5rem; padding: 0.75rem 1rem; border: 1px solid var(--hairline-color, #e0e0e0); }
+    .graph-panel h2 { margin-top: 0; font-size: 1rem; }
+    .graph-form { margin-bottom: 1.5rem; }
+    .graph-form .field { display: inline-block; vertical-align: bottom; margin-right: 1.5rem; margin-bottom: 0.5rem; }
+    .graph-form label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+    .graph-list { list-style: none; margin: 0; padding: 0; }
+    .graph-list li { padding: 0.15rem 0; }
+    .graph-tag { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; margin-left: 0.4rem; }
+    .graph-generation { margin: 0.4rem 0; }
+    .graph-generation > strong { display: inline-block; min-width: 10rem; }
+    .graph-path { font-family: monospace; word-break: break-word; }
+    .graph-label { font-size: 1.4rem; margin: 0.25rem 0; }
+    .graph-columns { display: flex; flex-wrap: wrap; gap: 2rem; }
+    .graph-columns > div { flex: 1 1 15rem; min-width: 15rem; }
+    .graph-empty { opacity: 0.6; font-style: italic; }
+  </style>
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+    &rsaquo; <a href="{% url 'admin:genealogy_person_changelist' %}">{% translate "Persons" %}</a>
+    &rsaquo; {{ title }}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <form method="get" class="graph-form">
+    {% for field in form %}
+      <span class="field">
+        {{ field.label_tag }}
+        {{ field }}
+        {% if field.errors %}<p class="errornote">{{ field.errors|striptags }}</p>{% endif %}
+      </span>
+    {% endfor %}
+    <input type="submit" value="{% translate 'Show' %}" class="default">
+  </form>
+
+  {% block graph_content %}{% endblock %}
+{% endblock %}

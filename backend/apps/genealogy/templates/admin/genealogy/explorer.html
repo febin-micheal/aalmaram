@@ -1,0 +1,110 @@
+{% extends "admin/genealogy/base_graph.html" %}
+{% load i18n %}
+
+{% block graph_content %}
+  {% if person %}
+    <div class="graph-panel">
+      <h2>{{ person.display_name }}{% if person.name_ml %} · {{ person.name_ml }}{% endif %}</h2>
+      <p>
+        {% if person.house_name %}{{ person.house_name }} · {% endif %}
+        {{ person.get_gender_display }} · {{ person.lifespan_display }}
+        {% if person.is_living %}<span class="graph-tag">{% translate "living" %}</span>{% endif %}
+        {% if person.status != "canonical" %}<span class="graph-tag">{{ person.get_status_display }}</span>{% endif %}
+      </p>
+      <p>
+        <a href="{% url 'admin:genealogy_person_change' person.pk %}">{% translate "Edit this person" %}</a> ·
+        <a href="{% url 'admin:genealogy_relate' %}?a={{ person.pk }}">{% translate "Relate to someone" %}</a>
+      </p>
+    </div>
+
+    <div class="graph-panel">
+      <h2>{% translate "Ego network" %}</h2>
+      <div class="graph-columns">
+        <div>
+          <h3>{% translate "Parents" %}</h3>
+          <ul class="graph-list">
+            {% for link in ego.parents %}
+              <li>
+                <a href="{{ explorer_url }}?person={{ link.person.pk }}&amp;depth=4">{{ link.person.display_name }}</a>
+                {% if link.relation_type != "biological" %}<span class="graph-tag">{{ link.relation_type }}</span>{% endif %}
+              </li>
+            {% empty %}
+              <li class="graph-empty">{% translate "None recorded" %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div>
+          <h3>{% translate "Siblings" %}</h3>
+          <ul class="graph-list">
+            {% for link in ego.siblings %}
+              <li>
+                <a href="{{ explorer_url }}?person={{ link.person.pk }}&amp;depth=4">{{ link.person.display_name }}</a>
+                {% if link.kind != "full" %}<span class="graph-tag">{{ link.kind }}</span>{% endif %}
+              </li>
+            {% empty %}
+              <li class="graph-empty">{% translate "None recorded" %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div>
+          <h3>{% translate "Partners" %}</h3>
+          <ul class="graph-list">
+            {% for link in ego.partners %}
+              <li>
+                <a href="{{ explorer_url }}?person={{ link.person.pk }}&amp;depth=4">{{ link.person.display_name }}</a>
+                <span class="graph-tag">{{ link.union.year_display }}</span>
+                <a href="{% url 'admin:genealogy_union_change' link.union.pk %}">{% translate "union" %}</a>
+              </li>
+            {% empty %}
+              <li class="graph-empty">{% translate "None recorded" %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div>
+          <h3>{% translate "Children" %}</h3>
+          <ul class="graph-list">
+            {% for link in ego.children %}
+              <li>
+                {% if link.sibling_order %}{{ link.sibling_order }}.{% endif %}
+                <a href="{{ explorer_url }}?person={{ link.person.pk }}&amp;depth=4">{{ link.person.display_name }}</a>
+                {% if link.relation_type != "biological" %}<span class="graph-tag">{{ link.relation_type }}</span>{% endif %}
+              </li>
+            {% empty %}
+              <li class="graph-empty">{% translate "None recorded" %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="graph-panel">
+      <h2>{% translate "Ancestors" %}</h2>
+      {% for depth, people in ancestors %}
+        <p class="graph-generation">
+          <strong>{% blocktranslate %}{{ depth }} generation(s) up{% endblocktranslate %}</strong>
+          {% for ancestor in people %}
+            <a href="{{ explorer_url }}?person={{ ancestor.pk }}&amp;depth=4">{{ ancestor.display_name }}</a>{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+      {% empty %}
+        <p class="graph-empty">{% translate "No ancestors recorded — this person is the top of their line so far." %}</p>
+      {% endfor %}
+    </div>
+
+    <div class="graph-panel">
+      <h2>{% translate "Descendants" %}</h2>
+      {% for depth, people in descendants %}
+        <p class="graph-generation">
+          <strong>{% blocktranslate %}{{ depth }} generation(s) down{% endblocktranslate %}</strong>
+          {% for descendant in people %}
+            <a href="{{ explorer_url }}?person={{ descendant.pk }}&amp;depth=4">{{ descendant.display_name }}</a>{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+      {% empty %}
+        <p class="graph-empty">{% translate "No descendants recorded." %}</p>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="graph-empty">{% translate "Pick a person to explore their corner of the graph." %}</p>
+  {% endif %}
+{% endblock %}

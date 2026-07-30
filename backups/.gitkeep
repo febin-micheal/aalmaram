@@ -1,0 +1,2 @@
+# Keeps this directory in the repo so Docker does not create it root-owned on first
+# `make up`. Dumps themselves are gitignored — real family data never gets committed.

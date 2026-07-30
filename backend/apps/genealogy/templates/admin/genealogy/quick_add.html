@@ -1,0 +1,33 @@
+{% extends "admin/genealogy/base_graph.html" %}
+{% load i18n %}
+
+{# This screen overrides the shared GET form: seeding is a POST, and it is the one #}
+{# place where entering a whole household must take a single submit. #}
+{% block content %}
+  <p>
+    {% translate "One union, its partners, and all of its children in a single submit. Leave a partner blank when that parent is unknown — that is a normal, recordable state." %}
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      {% for field in form %}
+        <div class="form-row{% if field.errors %} errors{% endif %}">
+          {{ field.errors }}
+          <div>
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<div class="help">{{ field.help_text|safe }}</div>{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </fieldset>
+
+    {% if form.non_field_errors %}<p class="errornote">{{ form.non_field_errors|striptags }}</p>{% endif %}
+
+    <div class="submit-row">
+      <input type="submit" value="{% translate 'Save and explore' %}" class="default">
+      <input type="submit" name="_addanother" value="{% translate 'Save and add another household' %}">
+    </div>
+  </form>
+{% endblock %}

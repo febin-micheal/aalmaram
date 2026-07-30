@@ -1,0 +1,83 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aalmaram}
+      POSTGRES_USER: ${POSTGRES_USER:-aalmaram}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aalmaram}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Host-side port is unusual on purpose: 5432/5433 are commonly already taken by a
+      # locally installed Postgres. Nothing inside the compose network uses this.
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aalmaram} -d ${POSTGRES_DB:-aalmaram}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    # Run as the host user so files the container writes into the bind mount
+    # (migrations, __pycache__) stay editable outside it.
+    user: "${UID:-1000}:${GID:-1000}"
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.dev}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-insecure-key-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      POSTGRES_DB: ${POSTGRES_DB:-aalmaram}
+      POSTGRES_USER: ${POSTGRES_USER:-aalmaram}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aalmaram}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Daily pg_dump into ./backups, keeping the newest 14. Runs as a service rather than a
+  # host cron entry so the safety net needs no setup beyond `make up`.
+  backup:
+    image: postgres:16-alpine
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-aalmaram}
+      POSTGRES_USER: ${POSTGRES_USER:-aalmaram}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-aalmaram}
+      RETAIN: ${BACKUP_RETAIN:-14}
+      INTERVAL: ${BACKUP_INTERVAL:-86400}
+    volumes:
+      - ./backups:/backups
+      - ./ops/auto-backup.sh:/usr/local/bin/auto-backup.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/auto-backup.sh"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:22-alpine
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://backend:8000}
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  frontend_node_modules:

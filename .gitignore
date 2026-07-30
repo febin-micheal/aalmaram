@@ -11,6 +11,10 @@ build/
 .DS_Store
 *.sqlite3
 media/
+# Database dumps. Real family data lives here and must never reach a public repo.
+# The directory itself is tracked (via .gitkeep) so Docker cannot create it root-owned.
+backups/*
+!backups/.gitkeep
 staticfiles/
 .pytest_cache/
 .coverage
