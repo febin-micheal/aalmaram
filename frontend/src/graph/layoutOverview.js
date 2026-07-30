@@ -15,7 +15,7 @@
  * a shared timeline (see backend graph/overview.py), so packing only has to solve x.
  */
 
-import { CARD_GAP, CARD_W, boundsOf, buildEdges, layoutGraph } from './layout.js'
+import { CARD_GAP, CARD_H, CARD_W, ROW_PITCH, boundsOf, buildEdges, layoutGraph } from './layout.js'
 
 /** Space left between two unrelated families. Wide enough to read as a separation. */
 export const COMPONENT_GAP = 220
@@ -34,7 +34,17 @@ export function layoutOverview(overview) {
   }))
   const unions = overview.unions.map((union) => ({ ...union, generation: union.band ?? 0 }))
 
-  const components = splitComponents(persons, unions, overview.memberships)
+  const allComponents = splitComponents(persons, unions, overview.memberships)
+
+  // People with no recorded relatives at all are separated out. Packed in a row like
+  // families they would stretch the canvas by ~400px each — a few hundred of them and
+  // nothing fits on any screen — and the stretch buys nothing, because a generation band
+  // carries almost no meaning for someone with no relatives to be a generation *of*.
+  // Families keep the shared timeline; unattached people are gathered into a block.
+  const components = allComponents.filter((c) => c.persons.length > 1 || c.unions.length > 0)
+  const unattached = allComponents
+    .filter((c) => c.persons.length === 1 && c.unions.length === 0)
+    .map((c) => c.persons[0])
 
   const merged = {
     persons: new Map(),
@@ -46,7 +56,7 @@ export function layoutOverview(overview) {
   }
 
   // Biggest family first: the main tree lands on the left where the eye starts, and the
-  // unattached fragments trail off to the right.
+  // smaller branches trail off to the right.
   components.sort((a, b) => b.persons.length - a.persons.length)
 
   let cursor = 0
@@ -78,12 +88,47 @@ export function layoutOverview(overview) {
     cursor += laid.bounds.maxX - laid.bounds.minX + COMPONENT_GAP
   }
 
+  packUnattached(unattached, merged, cursor)
+
   merged.bounds = boundsOf(merged.persons)
   merged.rows = [...new Set([...merged.persons.values()].map((p) => p.generation))].sort(
     (a, b) => a - b,
   )
   merged.componentCount = components.length
+  merged.unattachedCount = unattached.length
   return merged
+}
+
+/**
+ * Gather people with no recorded relatives into a roughly square block to the right.
+ *
+ * Roughly square, not a row, so the block's width grows as √n instead of n — which is
+ * what keeps the whole archive fitting on a phone when a few hundred people have been
+ * entered but not yet connected to anyone.
+ */
+function packUnattached(people, merged, startX) {
+  if (!people.length) return
+
+  const columns = Math.max(1, Math.ceil(Math.sqrt(people.length)))
+  const cellW = CARD_W + CARD_GAP
+  const cellH = ROW_PITCH
+  // Sit the block at the median band of its members so it lands in roughly the right era.
+  const bands = people.map((p) => p.generation ?? 0).sort((a, b) => a - b)
+  const baseY = (bands[Math.floor(bands.length / 2)] ?? 0) * ROW_PITCH
+
+  const ordered = [...people].sort((a, b) =>
+    (a.display_name ?? '').localeCompare(b.display_name ?? ''),
+  )
+
+  ordered.forEach((person, index) => {
+    const placed = { ...person }
+    placed.x = startX + (index % columns) * cellW
+    placed.y = baseY + Math.floor(index / columns) * cellH
+    placed.cx = placed.x + CARD_W / 2
+    placed.cy = placed.y + CARD_H / 2
+    placed.unattached = true
+    merged.persons.set(placed.id, placed)
+  })
 }
 
 /** Split the graph into connected families, over "shares a union in any role". */
@@ -175,6 +220,56 @@ export function visibleBox(transform, viewport, margin = CARD_W) {
     maxX: (viewport.width - transform.x) / transform.k + margin,
     maxY: (viewport.height - transform.y) / transform.k + margin,
   }
+}
+
+/** Floor for interactive zoom-out: below this, scrolling further tells you nothing. */
+export const MIN_SCALE = 0.08
+export const MAX_SCALE = 2.5
+/**
+ * Floor for *fitting*, which is lower on purpose.
+ *
+ * Fit has one job: show everything. Clamping it up to MIN_SCALE would silently leave part
+ * of a large archive off-screen — content hidden with no indication it exists, which is
+ * worse than content drawn small. Dot size is compensated for zoom in GraphCanvas, so a
+ * far-out fit still shows visible dots.
+ */
+export const FIT_MIN_SCALE = 0.004
+
+/**
+ * The transform that fits `bounds` inside `viewport`.
+ *
+ * Pure maths, kept out of the React hook so it can be checked headlessly — in particular
+ * at a 390px phone width, where "fits on screen" is a far tighter constraint than on a
+ * desktop and is easy to get wrong without noticing.
+ */
+export function fitTransform(bounds, viewport, padding = 80) {
+  if (!bounds || !viewport?.width || !viewport?.height) return null
+
+  const boxW = Math.max(bounds.maxX - bounds.minX, 1)
+  const boxH = Math.max(bounds.maxY - bounds.minY, 1)
+  // Never let padding eat the whole viewport on a narrow phone.
+  const usableW = Math.max(viewport.width - padding * 2, viewport.width * 0.5)
+  const usableH = Math.max(viewport.height - padding * 2, viewport.height * 0.5)
+
+  const k = Math.min(MAX_SCALE, Math.max(FIT_MIN_SCALE, Math.min(usableW / boxW, usableH / boxH)))
+  return {
+    k,
+    x: viewport.width / 2 - ((bounds.minX + bounds.maxX) / 2) * k,
+    y: viewport.height / 2 - ((bounds.minY + bounds.maxY) / 2) * k,
+  }
+}
+
+/**
+ * Dot radius in graph units that renders at a constant size on screen.
+ *
+ * Without this a fitted overview of a large archive draws sub-pixel dots — technically on
+ * screen, visually blank.
+ */
+export function dotRadius(scale, base = 5) {
+  // Clamping the divisor rather than capping the result: a dot then renders at a constant
+  // `base` screen pixels everywhere down to the fit floor, and shrinks normally when
+  // zoomed in past 1.
+  return base / Math.max(scale, FIT_MIN_SCALE)
 }
 
 export function intersects(person, box, width = CARD_W, height = CARD_GAP + 40) {

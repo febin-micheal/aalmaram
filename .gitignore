@@ -18,6 +18,14 @@ NOTES.md
 # The directory itself is tracked (via .gitkeep) so Docker cannot create it root-owned.
 backups/*
 !backups/.gitkeep
+# Production secrets and deploy state. None of this may ever be committed.
+.env.production
+.deploy.env
+secrets/
+*.age
+*.gpg
+age-identity*.txt
+rclone.conf
 staticfiles/
 .pytest_cache/
 .coverage

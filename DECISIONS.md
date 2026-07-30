@@ -474,3 +474,92 @@ Screenshots take the opposite rule: `docs/screenshots/` is deliberately **not** 
 because the only thing that may ever be screenshotted is fictional seed data. The dump
 `backups/manual-fictional-seed-for-screenshots.dump` preserves the seeded archive those
 images refer to, so they can be retaken after the database holds real data.
+
+## 20. Phase 1.7: production deployment
+
+**New phase.** The archive moves from a laptop to a small ARM VM at
+`https://family.bulkbeing.in`, serving the owner's real family data over the public
+internet. Nothing about the application changes; what changes is that "staff-only" now has
+to mean something against strangers rather than against localhost.
+
+### Shape of the deployment
+
+Caddy is the only process with a published port. Gunicorn and Postgres are reachable only
+on the private compose network, and **Postgres publishes no host port at all** — it cannot
+be scanned or brute-forced from the internet regardless of its password. `ops/verify-prod.sh`
+asserts that from outside, because "we didn't publish the port" is a claim worth testing.
+
+### Settings that refuse to start
+
+`config/settings/prod.py` has no usable defaults. A missing `DJANGO_SECRET_KEY`,
+`DJANGO_ALLOWED_HOSTS` or `DJANGO_CSRF_TRUSTED_ORIGINS` raises `ImproperlyConfigured` at
+import. A process that boots with a dev secret key is worse than one that does not boot:
+the failure is silent and the consequence is total. All three were verified to fail loudly
+before deployment.
+
+TLS is terminated by Caddy, so `SECURE_PROXY_SSL_HEADER` is set. That header is only
+trustworthy because nothing but Caddy can reach gunicorn — which is the same fact the
+"no published port" decision rests on.
+
+**HSTS is enabled without preload.** `includeSubDomains` covers this host; preload is
+submitted for the apex domain and is effectively irreversible for every other
+`bulkbeing.in` host, which is not this project's decision to make.
+
+**django-axes** locks out after 5 failures per IP+username. The admin login is the only
+door and it faces the open internet. Axes is enabled in production only, and pinned off in
+test settings so it can never start silently locking out the test client mid-suite.
+
+### A bug found by smoke-testing the image
+
+The first build served a 500 on every admin page: WhiteNoise's manifest storage raises on
+any unhashed static reference, and `collectstatic` had not run. The original design ran it
+at deploy time into a named volume — which is fragile twice over, because the volume
+shadows whatever the image contains and a failed deploy step leaves a broken site.
+
+Static files are **build artifacts, not runtime state**. `collectstatic` now runs in
+`Dockerfile.prod` and the `staticfiles` volume is gone: an image that builds is an image
+that can serve. Found only by booting the production image locally and requesting
+`/admin/login/` — `docker build` succeeding proved nothing about it.
+
+### Backups: age + rclone to Backblaze B2
+
+**B2 over R2**, because its credential model is a bucket plus an application key with
+nothing else attached, and rclone has a native `b2` backend. R2 would work identically —
+rclone abstracts the difference — and swapping means editing one config file. B2 also keeps
+backups independent of whoever runs DNS for the domain.
+
+**Encryption is a keypair, not a passphrase, and that is a deliberate deviation from the
+brief.** `age` reads a passphrase from the terminal, not from an environment variable or
+stdin, so passphrase mode cannot run unattended — a nightly job would simply hang. Instead
+the VM holds only the age *public* key: it writes backups it cannot itself read, so
+whoever steals the machine gets ciphertext. The private identity lives in the owner's
+password manager, with a root-only copy at `/opt/aalmaram/secrets/` on the VM so restores
+can run there. That copy is a convenience and weakens the property above; the offline copy
+is the authority.
+
+The backup script refuses to upload anything that does not begin with the age magic bytes.
+An unencrypted dump reaching object storage is the one failure this pipeline must not have.
+
+### Verified before touching a VM
+
+The whole production stack was booted locally: images build, settings fail loudly without
+secrets, `check --deploy` is clean apart from the deliberate preload opt-out, gunicorn
+serves, `ALLOWED_HOSTS` rejects an unknown Host, the API returns 403 to anonymous callers,
+the admin renders. The backup chain was run end to end against a local rclone remote —
+dump, encrypt, upload, download, decrypt, restore into a scratch database, compare counts:
+**344 = 344**, with no plaintext names anywhere in the ciphertext.
+
+### Mobile
+
+`fitTransform` was extracted from the pan/zoom hook so "does it fit" can be checked
+headlessly at 390×844. Two real bugs came out of that: padding could exceed a phone's
+width and collapse the fit, and the fit floor was clamped to the *interactive* minimum
+zoom, silently leaving part of a large archive off-screen. Fit now has its own lower floor,
+and dot radius is compensated for zoom so a far-out fit still shows visible dots rather
+than a blank canvas.
+
+A third came from the same tests: a few hundred people entered but not yet connected to
+anyone would each become their own component and stretch the canvas by ~400px apiece.
+Unattached people are now gathered into a roughly square block whose width grows as √n.
+Families keep the shared timeline; someone with no relatives has no generation to be part
+of, so little is lost.

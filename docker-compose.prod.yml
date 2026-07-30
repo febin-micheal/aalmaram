@@ -1,0 +1,118 @@
+# Production stack for a single small ARM VM.
+#
+# Shape of it: Caddy is the only thing with a published port. Postgres and gunicorn are
+# reachable only on the private compose network — the database has no host port at all,
+# so it cannot be scanned or brute-forced from the internet regardless of its password.
+#
+#   caddy  :80/:443  ──▶  backend:8000 (gunicorn)  ──▶  db:5432
+#          └─ serves the built SPA from a shared volume
+#
+# Usage:  docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No `ports:` — deliberately. Nothing outside this network reaches Postgres.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    # Explicit image name: without it this build takes the same default tag as the dev
+    # compose file and silently overwrites the dev image (which carries pytest and ruff).
+    image: aalmaram-backend-prod
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      # No staticfiles volume: collectstatic runs at image build time, and a volume
+      # mounted here would shadow the baked files and 500 every admin page.
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # One-shot: builds the SPA into a volume Caddy serves, then exits.
+  frontend-build:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci --no-audit --no-fund && npm run build && rm -rf /dist/* && cp -r dist/. /dist/"
+    environment:
+      # Same origin in production — Caddy proxies /api to gunicorn, so no absolute URL
+      # and no CORS.
+      VITE_API_BASE_URL: /api/v1
+    volumes:
+      - ./frontend:/app
+      - frontend_dist:/dist
+    restart: "no"
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - frontend_dist:/srv/frontend:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_started
+      frontend-build:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Nightly encrypted dump, pushed off the box. See ops/prod-backup.sh.
+  backup:
+    image: aalmaram-backup-prod
+    build:
+      context: ./ops
+      dockerfile: Dockerfile.backup
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AGE_RECIPIENT: ${AGE_RECIPIENT}
+      RCLONE_REMOTE: ${RCLONE_REMOTE}
+      RETAIN_LOCAL: ${BACKUP_RETAIN_LOCAL:-7}
+      RETAIN_REMOTE: ${BACKUP_RETAIN_REMOTE:-30}
+      INTERVAL: ${BACKUP_INTERVAL:-86400}
+    volumes:
+      - ./backups:/backups
+      - ./secrets/rclone.conf:/config/rclone/rclone.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:
+  frontend_dist:
+  caddy_data:
+  caddy_config:

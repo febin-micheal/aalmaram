@@ -1,0 +1,42 @@
+# Caddy terminates TLS, serves the built SPA, and proxies everything Django owns.
+# Certificates are obtained and renewed automatically from Let's Encrypt once the A record
+# for {$SITE_DOMAIN} points at this machine.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# Django's territory. Everything else is the single-page app.
+	@django path /api/* /admin/* /static/* /media/*
+	handle @django {
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle {
+		root * /srv/frontend
+		# SPA fallback: the explorer keeps its state in memory, so every path is index.html.
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		# The SPA is entirely self-contained: no CDN, no external fonts, no analytics.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -2,3 +2,9 @@ Django==5.2.7
 djangorestframework==3.16.1
 django-cors-headers==4.9.0
 psycopg[binary]==3.2.10
+
+# Production serving. Installed everywhere so the prod image and the dev image are the
+# same build; only prod settings actually switch them on.
+gunicorn==23.0.0
+whitenoise[brotli]==6.11.0
+django-axes==8.0.0

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const MIN_SCALE = 0.08
-const MAX_SCALE = 2.5
+import { MAX_SCALE, MIN_SCALE, fitTransform } from './layoutOverview.js'
 
 /**
  * Pan and zoom over a single SVG transform group.
@@ -36,19 +35,9 @@ export function usePanZoom(svgRef) {
       const svg = svgRef.current
       if (!svg || !bounds) return
       const { width, height } = svg.getBoundingClientRect()
-      if (!width || !height) return
-
-      const boxW = Math.max(bounds.maxX - bounds.minX, 1)
-      const boxH = Math.max(bounds.maxY - bounds.minY, 1)
-      const k = Math.min(
-        MAX_SCALE,
-        Math.max(MIN_SCALE, Math.min((width - padding * 2) / boxW, (height - padding * 2) / boxH)),
-      )
-      setTransform({
-        k,
-        x: width / 2 - ((bounds.minX + bounds.maxX) / 2) * k,
-        y: height / 2 - ((bounds.minY + bounds.maxY) / 2) * k,
-      })
+      // The maths lives in layoutOverview.js so it can be checked at phone widths.
+      const next = fitTransform(bounds, { width, height }, padding)
+      if (next) setTransform(next)
     },
     [svgRef],
   )

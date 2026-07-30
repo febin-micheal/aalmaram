@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { CARD_H, CARD_W } from '../graph/layout.js'
 import {
   EDGE_ZOOM_THRESHOLD,
+  dotRadius,
   intersects,
   renderModeFor,
   visibleBox,
@@ -143,7 +144,10 @@ export default function GraphCanvas({
                 key={person.id}
                 cx={person.cx}
                 cy={person.cy}
-                r={person.id === centerId ? 9 : highlightedPersons.has(person.id) ? 8 : 5}
+                r={dotRadius(
+                  transform.k,
+                  person.id === centerId ? 9 : highlightedPersons.has(person.id) ? 8 : 5,
+                )}
                 fill={highlightedPersons.has(person.id) ? 'var(--accent-strong)' : accentFor(person)}
                 opacity={dimmed && !highlightedPersons.has(person.id) ? 0.25 : person.is_living ? 1 : 0.55}
                 className="cursor-pointer"

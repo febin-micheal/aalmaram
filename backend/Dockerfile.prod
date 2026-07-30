@@ -1,0 +1,51 @@
+# Production image. Same dependency set as dev — only the settings module and the process
+# manager differ — so what is tested locally is what runs on the VM.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DJANGO_SETTINGS_MODULE=config.settings.prod
+
+WORKDIR /app
+
+# postgresql-client gives pg_isready and pg_dump for entrypoint waits and backups.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Collect static at BUILD time, not at deploy time.
+#
+# WhiteNoise's manifest storage raises on any unhashed reference, so until collectstatic
+# has run every admin page is a 500 — found exactly that way during a local smoke test of
+# this image. Baking the files into the image (rather than into a runtime volume that
+# would shadow them) means an image that builds is an image that can serve. The env vars
+# below exist only to satisfy the settings module; collectstatic touches no database.
+RUN DJANGO_SECRET_KEY=build-time-only-not-a-runtime-secret \
+    DJANGO_ALLOWED_HOSTS=build.invalid \
+    DJANGO_CSRF_TRUSTED_ORIGINS=https://build.invalid \
+    POSTGRES_PASSWORD=build-time-only \
+    python manage.py collectstatic --noinput --clear
+
+# Runs as a non-root user: a compromised gunicorn should not own the filesystem.
+RUN useradd --system --create-home --uid 10001 aalmaram \
+    && mkdir -p /app/media \
+    && chown -R aalmaram:aalmaram /app
+USER aalmaram
+
+EXPOSE 8000
+
+# Two workers with threads: the ARM Always Free box has limited memory, and this workload
+# is dominated by a few large read queries rather than by concurrency.
+CMD ["gunicorn", "config.wsgi:application", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "2", \
+     "--threads", "4", \
+     "--timeout", "60", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-"]

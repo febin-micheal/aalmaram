@@ -1,0 +1,10 @@
+# Backup sidecar: pg_dump + age + rclone, nothing else.
+FROM alpine:3.20
+
+RUN apk add --no-cache postgresql16-client age rclone ca-certificates tzdata
+
+COPY prod-backup.sh /usr/local/bin/prod-backup.sh
+COPY prod-restore.sh /usr/local/bin/prod-restore.sh
+RUN chmod +x /usr/local/bin/prod-backup.sh /usr/local/bin/prod-restore.sh
+
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/prod-backup.sh"]

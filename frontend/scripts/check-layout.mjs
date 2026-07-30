@@ -17,12 +17,20 @@ import {
   CARD_ZOOM_THRESHOLD,
   COMPONENT_GAP,
   EDGE_ZOOM_THRESHOLD,
+  MIN_SCALE,
+  dotRadius,
+  fitTransform,
   intersects,
   layoutOverview,
   renderModeFor,
   splitComponents,
   visibleBox,
 } from '../src/graph/layoutOverview.js'
+
+/** Viewports the explorer has to survive. 390×844 is an iPhone 12/13/14/15. */
+const PHONE = { width: 390, height: 844 }
+const PHONE_LANDSCAPE = { width: 844, height: 390 }
+const DESKTOP = { width: 1600, height: 900 }
 
 let passed = 0
 function check(name, fn) {
@@ -512,6 +520,103 @@ check('a 1200-person archive lays out within budget', () => {
 
 check('component gap is wide enough to read as a separation', () => {
   assert.ok(COMPONENT_GAP > CARD_W, 'families must be further apart than siblings are')
+})
+
+// -------------------------------------------------------------- mobile (390px)
+
+console.log('\nmobile — 390px viewport')
+
+check('a whole family fits on a 390px screen', () => {
+  const layout = layoutOverview(overviewFixture())
+  const transform = fitTransform(layout.bounds, PHONE)
+  assert.ok(transform, 'fit should produce a transform')
+
+  // Everything must land inside the viewport, with a pixel of tolerance for rounding.
+  const left = layout.bounds.minX * transform.k + transform.x
+  const right = layout.bounds.maxX * transform.k + transform.x
+  const top = layout.bounds.minY * transform.k + transform.y
+  const bottom = layout.bounds.maxY * transform.k + transform.y
+
+  assert.ok(left >= -1, `graph overflows the left edge by ${(-left).toFixed(0)}px`)
+  assert.ok(right <= PHONE.width + 1, `overflows the right edge by ${(right - PHONE.width).toFixed(0)}px`)
+  assert.ok(top >= -1, `overflows the top by ${(-top).toFixed(0)}px`)
+  assert.ok(bottom <= PHONE.height + 1, `overflows the bottom by ${(bottom - PHONE.height).toFixed(0)}px`)
+})
+
+check('padding never eats a narrow screen whole', () => {
+  // A naive `width - padding*2` goes negative at 390px with 200px padding, which would
+  // silently clamp the graph to a dot in the corner.
+  const layout = layoutOverview(overviewFixture())
+  const transform = fitTransform(layout.bounds, PHONE, 200)
+  assert.ok(transform.k > MIN_SCALE, `fit collapsed to the minimum scale (${transform.k})`)
+  assert.ok(Number.isFinite(transform.x) && Number.isFinite(transform.y))
+})
+
+check('a 1200-person archive still fits a phone, as dots', () => {
+  const persons = []
+  const unions = []
+  const memberships = []
+  for (let i = 0; i < 1200; i += 1) {
+    persons.push({
+      id: `p${i}`,
+      name_en: `P${i}`,
+      name_ml: '',
+      display_name: `P${i}`,
+      house_name: `House${i % 12}`,
+      gender: 'unknown',
+      is_living: false,
+      lifespan_compact: '',
+      band: i % 5,
+    })
+  }
+  const layout = layoutOverview({ persons, unions, memberships })
+  const transform = fitTransform(layout.bounds, PHONE)
+
+  // At that scale the app must be in dot mode — 1200 cards on a phone is not a view.
+  assert.equal(renderModeFor(transform.k), 'dots')
+  const right = layout.bounds.maxX * transform.k + transform.x
+  assert.ok(right <= PHONE.width + 1, 'the whole archive must fit the phone width')
+})
+
+check('card zoom on a phone draws a readable handful, not the whole archive', () => {
+  const layout = layoutOverview(overviewFixture())
+  const box = visibleBox({ x: 0, y: 0, k: CARD_ZOOM_THRESHOLD + 0.2 }, PHONE)
+  const drawn = [...layout.persons.values()].filter((p) => intersects(p, box))
+
+  assert.ok(drawn.length >= 1, 'something must be on screen at card zoom')
+  assert.ok(
+    drawn.length < layout.persons.size,
+    'a phone at card zoom must not be drawing every card',
+  )
+})
+
+check('a card is narrower than a phone screen', () => {
+  // If a single card were wider than the viewport it could never be read without panning.
+  assert.ok(CARD_W < PHONE.width, `card is ${CARD_W}px, phone is ${PHONE.width}px`)
+})
+
+check('landscape phones fit too', () => {
+  const layout = layoutOverview(overviewFixture())
+  const transform = fitTransform(layout.bounds, PHONE_LANDSCAPE)
+  const bottom = layout.bounds.maxY * transform.k + transform.y
+  assert.ok(bottom <= PHONE_LANDSCAPE.height + 1, 'graph overflows a landscape phone')
+})
+
+check('dots stay visible however far out the fit goes', () => {
+  // A fitted overview of a large archive can sit at k≈0.03. A fixed 5-unit radius would
+  // render at 0.15px there — on screen in theory, blank in practice.
+  for (const k of [1, 0.45, 0.08, 0.03, 0.005]) {
+    const onScreen = dotRadius(k) * k
+    assert.ok(onScreen >= 2, `dot renders at ${onScreen.toFixed(2)}px at zoom ${k}`)
+  }
+  // And it must not balloon when zoomed in.
+  assert.ok(dotRadius(2) <= 5, 'dots should not grow when zoomed in')
+})
+
+check('fit degrades safely before the viewport is measured', () => {
+  const layout = layoutOverview(overviewFixture())
+  assert.equal(fitTransform(layout.bounds, { width: 0, height: 0 }), null)
+  assert.equal(fitTransform(null, DESKTOP), null)
 })
 
 console.log(`\n${passed} check(s) passed`)
