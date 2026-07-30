@@ -7,9 +7,10 @@ discovers common ancestors across branches.
 
 Built with Django + PostgreSQL + React. Bilingual (Malayalam/English) by design.
 
-Status: **Phase 1.75 complete** — data model, graph traversal library, admin tree view, a
-visual explorer that lands on the whole archive, **direct-manipulation editing on the
-canvas**, and a backup/restore/reset workflow for real data. The swipe deck and magic-link
+Status: **Phase 1.8 complete** — data model, graph traversal library, admin tree view, a
+visual explorer that lands on the whole archive, direct-manipulation editing on the canvas,
+an **ego-centric view** that labels every card relative to a switchable point of view, and
+a backup/restore/reset workflow for real data. The swipe deck and magic-link
 invites are Phase 2. See [CLAUDE.md](CLAUDE.md) for the full architecture spec and
 [DECISIONS.md](DECISIONS.md) for the judgment calls made along the way.
 
@@ -138,6 +139,42 @@ second marriage, an unknown parent, the Tab sibling flow, an undo and an inline 
 
 You should end with 8+ people across three generations, one second marriage, one unknown
 parent, and four siblings in recorded birth order — entered without opening a form.
+
+## Seeing it from where you stand
+
+Every card can carry a **relationship label** — *അമ്മാവൻ*, *half-uncle*,
+*5 തലമുറ മുകളിലുള്ള പൂർവികൻ* — relative to whoever is in focus. Tell the app who you are
+once and the whole graph reads as your family rather than as a diagram.
+
+- **"This is me"** in a person's side panel sets your anchor. It is stored on your account
+  and restored on every load. One anchor per user — it is the same field Phase 2's privacy
+  radius measures from, so claiming a new "me" *moves* it.
+- **The focus bar** across the top holds your points of view. **Me** is always chip #1 and
+  can only be changed from the side panel. **+ pin** adds whoever is selected; tap any chip
+  to switch perspective and every label on screen re-reads from there.
+- Pins live in your browser, per device — they are a working set, not a fact about the
+  family. Your anchor lives on the server.
+
+The focus person wears a ring and shows **"you"** instead of a label. Someone with no
+blood relationship shows no chip at all, rather than a misleading one.
+
+### Click-script — the ego view
+
+Continue from the family you entered on the canvas (or `make seed` for the fictional one).
+
+| # | Do | Expect |
+| --- | --- | --- |
+| 1 | Click a person in the middle of the tree, e.g. **Jose** | The side panel opens |
+| 2 | Click **This is me** | A toast confirms it; the focus bar appears with **★ Me** as chip #1, and Jose's card gets a **ring** and the chip **"you"** |
+| 3 | Look across the other 7 cards | Each carries a relationship chip: *father*, *grandfather*, *aunt*, *half-uncle*… in whichever language the UI is in |
+| 4 | Switch the UI to **മലയാളം** | The chips become അച്ഛൻ, മുത്തച്ഛൻ, അമ്മായി, ചെറിയച്ഛൻ. Anything with no everyday Malayalam term falls back to English rather than going blank |
+| 5 | Select a distant person, e.g. **Kiran**, then click **+ pin** | A second chip appears in the focus bar |
+| 6 | Tap the **Kiran** chip | The active chip changes, the ring moves to Kiran, and **every label re-reads from there** — Thomas goes from *father* to *great-grandfather* |
+| 7 | Tap **★ Me** again | Labels snap back to your point of view |
+| 8 | Click **Centre on focus** | The canvas pans to whoever is active |
+| 9 | Open a person from a *different, unconnected* family (after `make seed`) | **No chip** — they are not related, and the app says nothing rather than guessing |
+| 10 | Select yourself → **Not me after all**, then claim someone else | The anchor moves; ★ Me follows, and every label re-reads |
+| 11 | Reload the page | Your anchor is restored from the server; pins are restored from this browser |
 
 ## Using with real data
 

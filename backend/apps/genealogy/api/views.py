@@ -24,7 +24,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.genealogy.graph import build_neighborhood, build_overview, describe_relationship
+from apps.genealogy.graph import (
+    MAX_TARGETS,
+    build_neighborhood,
+    build_overview,
+    describe_relationship,
+    naming,
+    relate_bulk,
+)
 from apps.genealogy.households import (
     AlreadyHasParents,
     AmbiguousUnion,
@@ -41,11 +48,13 @@ from .serializers import (
     CommonAncestorSerializer,
     CreatePersonSerializer,
     MembershipEdgeSerializer,
+    MeSerializer,
     OverviewPersonSerializer,
     OverviewUnionSerializer,
     PersonNodeSerializer,
     PersonSerializer,
     QuickAddSerializer,
+    SetAnchorSerializer,
     UnionNodeSerializer,
     UpdatePersonSerializer,
 )
@@ -314,6 +323,92 @@ class CsrfView(APIView):
 
     def get(self, request):
         return Response({"detail": "CSRF cookie set"})
+
+
+class MeView(APIView):
+    """Who am I, and which Person am I? Read here, set at /me/anchor/."""
+
+    permission_classes = [IsStaff]
+
+    def get(self, request):
+        return Response(MeSerializer(request.user).data)
+
+
+class SetAnchorView(APIView):
+    """Pin the signed-in user to a Person — the "this is me" action on a card.
+
+    One anchor per user, deliberately: this is the same field Phase 2's privacy radius
+    measures from, so a second notion of "me" would mean two different answers to "who is
+    allowed to see this living relative".
+    """
+
+    permission_classes = [IsStaff]
+
+    def patch(self, request):
+        serializer = SetAnchorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        person_id = serializer.validated_data["person_id"]
+        request.user.anchor_person_id = person_id
+        request.user.save(update_fields=["anchor_person"])
+        request.user.refresh_from_db()
+
+        return Response(MeSerializer(request.user).data)
+
+
+class RelateBulkView(APIView):
+    """How is each of these people related to the focus person?
+
+    Labelling a screenful of cards one pair at a time would be hundreds of round trips and
+    would have to be redone every time the focus changes. This answers the whole batch in
+    three queries — see graph/relate_bulk.py — and uses the same naming module as the
+    single-pair view, so a label can never differ between the two.
+    """
+
+    permission_classes = [IsStaff]
+
+    def get(self, request):
+        subject = _person_or_none(request.query_params.get("from"))
+        if subject is None:
+            return Response(
+                {"detail": "Pass ?from=<uuid> and ?to=<uuid,uuid,...>."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_targets = [
+            t.strip() for t in (request.query_params.get("to") or "").split(",") if t.strip()
+        ]
+        if len(raw_targets) > MAX_TARGETS:
+            return Response(
+                {
+                    "detail": f"Too many targets; ask for at most {MAX_TARGETS} at a time.",
+                    "code": "too_many_targets",
+                    "max": MAX_TARGETS,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        relations = relate_bulk(subject.id, raw_targets)
+
+        results = {}
+        for target_id, relation in relations.items():
+            if relation.descriptor is None or not relation.is_related:
+                # Disconnected: an explicit null rather than a missing key, so the client
+                # can tell "no relationship" from "not asked about".
+                results[str(target_id)] = None
+                continue
+            results[str(target_id)] = {
+                "labels": naming.labels_for(relation.descriptor),
+                "kind": relation.descriptor.kind,
+                "degree": relation.degree,
+                "up_subject": relation.descriptor.up_subject,
+                "up_other": relation.descriptor.up_other,
+                "half": relation.descriptor.half,
+                "step": relation.descriptor.step,
+                "common_ancestors": [str(a) for a in relation.common_ancestor_ids],
+            }
+
+        return Response({"from": str(subject.id), "results": results})
 
 
 class RelateView(APIView):

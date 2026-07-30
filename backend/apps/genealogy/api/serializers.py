@@ -78,6 +78,27 @@ class OverviewUnionSerializer(serializers.Serializer):
     band = serializers.IntegerField(read_only=True)
 
 
+class MeSerializer(serializers.Serializer):
+    """Who the signed-in user is, and which Person they are anchored to.
+
+    Only the two things the client needs. The anchor is the same field Phase 2's privacy
+    radius consumes — one anchor per user, no second notion of "me".
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    anchor_person = PersonSerializer(read_only=True, allow_null=True)
+
+
+class SetAnchorSerializer(serializers.Serializer):
+    #: null unsets the anchor — "actually, that is not me" has to be expressible.
+    person_id = serializers.UUIDField(required=True, allow_null=True)
+
+    def validate_person_id(self, value):
+        if value is not None and not Person.objects.canonical().filter(pk=value).exists():
+            raise serializers.ValidationError("No such canonical person.")
+        return value
+
+
 class CreatePersonSerializer(serializers.Serializer):
     """Create one person wired into the graph, as the canvas affordances do.
 

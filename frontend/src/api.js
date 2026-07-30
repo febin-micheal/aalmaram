@@ -110,3 +110,27 @@ export const updatePerson = (id, fields) => send('PATCH', `/persons/${id}/`, fie
 
 /** Undo a creation. 409 `not_provisional` means the node has grown edges of its own. */
 export const deletePerson = (id) => send('DELETE', `/persons/${id}/`)
+
+/** Who the signed-in user is, and which Person they are anchored to. */
+export const fetchMe = () => get('/me/')
+
+/** Set (or clear, with null) the anchor — the "this is me" action. */
+export const setAnchor = (personId) => send('PATCH', '/me/anchor/', { person_id: personId })
+
+/**
+ * How each of `targetIds` relates to `fromId`, in one request.
+ *
+ * The server caps a call at 200 targets, so this batches. Labelling is only ever asked for
+ * the cards actually on screen, and this is what keeps switching focus from costing a
+ * round trip per visible card.
+ */
+export async function fetchRelationsBulk(fromId, targetIds, batchSize = 150) {
+  const unique = [...new Set(targetIds)].filter((id) => id && id !== fromId)
+  const results = {}
+  for (let i = 0; i < unique.length; i += batchSize) {
+    const batch = unique.slice(i, i + batchSize)
+    const payload = await get('/relate-bulk/', { from: fromId, to: batch.join(',') })
+    Object.assign(results, payload.results)
+  }
+  return results
+}

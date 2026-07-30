@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { NotAuthenticated, fetchRelation } from './api.js'
 import EmptyState from './components/EmptyState.jsx'
+import FocusBar from './components/FocusBar.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import QuickAddDialog from './components/QuickAddDialog.jsx'
 import RelateBar from './components/RelateBar.jsx'
@@ -12,6 +13,7 @@ import Toast from './components/Toast.jsx'
 import { findLinkingUnion } from './graph/layout.js'
 import { toScreen } from './graph/layoutOverview.js'
 import { useEditor } from './graph/useEditor.js'
+import { useFocus } from './graph/useFocus.js'
 import { useGraph } from './graph/useGraph.js'
 import { useOverview } from './graph/useOverview.js'
 import { AVAILABLE_LOCALES, detectLocale, setLocale, translatorFor } from './i18n/index.js'
@@ -46,6 +48,7 @@ export default function App() {
   const anchorScreen = useRef(null)
 
   const t = translatorFor(locale)
+  const focus = useFocus({ onError: (message) => showToastRef.current?.(message) })
   const overview = useOverview()
   const graph = useGraph()
   const { centerId } = graph
@@ -73,6 +76,9 @@ export default function App() {
   const showToast = useCallback((message, tone = 'error') => {
     setToast({ message, tone, at: Date.now() })
   }, [])
+  // useFocus is created before showToast exists; a ref bridges the two.
+  const showToastRef = useRef(showToast)
+  showToastRef.current = showToast
 
   /**
    * Adding a node re-runs the layout, which can shift everything sideways. Remember where
@@ -298,6 +304,25 @@ export default function App() {
     }
   }, [editor.draft, renderMode, layout])
 
+  /**
+   * Label only what is drawn.
+   *
+   * The canvas already culls to the viewport in card mode, and that same set is what gets
+   * asked about — labelling the whole database would be wasted work that has to be redone
+   * on every focus switch. In dot mode nothing is labelled, because a dot has no room for
+   * a chip.
+   */
+  const visibleIds = useMemo(() => {
+    if (!layout || renderMode !== 'cards') return []
+    return [...layout.persons.keys()]
+  }, [layout, renderMode])
+
+  useEffect(() => {
+    if (!focus.activeId || !visibleIds.length) return
+    focus.loadRelations(visibleIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus.activeId, visibleIds.length, layout])
+
   const centerOnCommonAncestor = async () => {
     const common = relate.result?.common_ancestors?.[0]
     if (!common) return
@@ -409,6 +434,22 @@ export default function App() {
         loading={graph.loading || overview.loading}
       />
 
+      <FocusBar
+        t={t}
+        locale={locale}
+        chips={focus.chips}
+        activeId={focus.activeId}
+        onActivate={focus.setActive}
+        onUnpin={focus.unpin}
+        onPin={() => focus.pin(selected)}
+        canPin={Boolean(selected) && selected.id !== focus.me?.id && !focus.pins.some((p) => p.id === selected?.id)}
+        onCenter={() => {
+          const person = layout?.persons.get(focus.activeId)
+          if (person) controls.current.centerOn?.({ x: person.cx, y: person.cy })
+        }}
+        loading={focus.loading}
+      />
+
       {failure && (
         <p className="bg-red-100 px-4 py-2 text-sm text-red-900">
           {t('error.generic', { message: failure })}
@@ -433,6 +474,8 @@ export default function App() {
           onAddRelative={mode === 'detail' && !relate.active ? startAdd : undefined}
           onChooseUnion={chooseUnion}
           onEditYear={(person) => setYearEditFor(person)}
+          focusId={focus.activeId}
+          labelFor={(personId) => focus.labelFor(personId, locale)}
           registerControls={(api) => {
             controls.current = api
           }}
@@ -497,6 +540,15 @@ export default function App() {
             onRelateFrom={(person) => setRelate({ ...IDLE_RELATE, active: true, a: person })}
             onAddHousehold={openQuickAdd}
             onEdit={(person, fields) => editor.editPerson(person, fields)}
+            isMe={focus.me?.id === selected?.id}
+            onClaimAsMe={async (person) => {
+              const claimed = await focus.claimAsMe(person)
+              if (claimed) showToast(t('focus.claimed', { name: claimed.display_name }), 'ok')
+            }}
+            onUnclaimMe={async () => {
+              await focus.claimAsMe(null)
+              showToast(t('focus.unclaimed'), 'ok')
+            }}
             onSelect={(person) => setSelectedId(person.id)}
           />
         )}

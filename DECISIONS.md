@@ -678,3 +678,83 @@ Five headless checks now cover the empty → first-person → grown-family path,
 that a lone person draws as a card rather than a dot at every viewport and that the first
 `+ partner` / `+ child` produce correct geometry. The regression was invisible to 45
 existing checks because every one of them started from a populated fixture.
+
+## 22. Phase 1.8: the ego-centric view
+
+**New phase.** Every card gains a relationship label — "അമ്മാവൻ", "half-uncle",
+"5 തലമുറ മുകളിലുള്ള പൂർവികൻ" — relative to a chosen point of view, and that point of view
+is switchable. The graph stops being a diagram of a family and becomes a diagram of *your*
+family.
+
+### Anchor vs pins: one is data, the other is a scratchpad
+
+**The anchor ("me")** lives on the server, on `accounts.User.anchor_person`, one per user.
+That is not an arbitrary limit: it is the same field Phase 2's privacy radius measures
+from, so a second notion of "me" would mean two different answers to "who is allowed to
+see this living relative". `PATCH /api/v1/me/anchor/` moves it rather than adding to it,
+and it survives a reload because it is a fact about the user.
+
+**Pins** are the two or three people you are currently reasoning between, and they live in
+**localStorage, per device**. They are a working set, closer to which tabs you have open
+than to who you are: losing them on another machine costs nothing, and syncing them would
+mean a migration plus API surface for something ephemeral. "Me" is always chip #1 and is
+not removable from the focus bar — removing yourself is an answer about identity, given in
+the side panel, not a bookmark you drag off a shelf.
+
+### Labelling a screenful in three queries, not three hundred
+
+`describe_relationship` costs roughly eight queries per pair: two ancestor walks, two path
+reconstructions, a sibling classification, a birth-order check, a partner lookup. Forty
+visible cards would be several hundred round trips — and they would all have to be redone
+on every focus switch and every time the graph grows. That is the difference between a
+feature and a demo.
+
+`graph/relate_bulk.py` does the same work in a **constant four queries** regardless of how
+many people are asked about:
+
+1. validate the `from` person;
+2. **one** recursive walk seeded with every person involved (`ANCESTOR_DEPTHS_MULTI`),
+   giving each seed's ancestor set;
+3. every membership among the people that walk touched;
+4. those people's fields.
+
+Common ancestors, paths, half-vs-full, side of the family and birth order are then computed
+against those in-memory structures. `test_api_ego.py` pins the count at 8 targets and pins
+it again against the entire fixture database — if it ever starts growing with the target
+count, that is a regression the tests fail on rather than a slow page nobody traces.
+
+**One labelling path.** The bulk endpoint builds a `Descriptor` and hands it to
+`naming.py` unchanged. A test asserts every core-kin label matches what the single-pair
+`/relate/` view returns, because two labelling implementations would drift and the drift
+would be invisible.
+
+### What gets labelled
+
+Only the cards actually drawn. The canvas already culls to the viewport, and that same set
+is what gets asked about — labelling the whole archive would be wasted work repeated on
+every focus switch. In dot mode nothing is labelled: a dot has no room for a chip.
+
+Three cases render as nothing rather than as something wrong: the focus person shows
+**"you"** instead of a relationship; a disconnected person shows **no chip at all** (the
+API returns an explicit `null`, so "no relationship" is distinguishable from "not asked
+about"); and where Malayalam has no everyday term, the chip falls back to English rather
+than blanking.
+
+The chip sits *above* the card, not inside it. The card's three lines are the person's own
+facts; the chip is a fact about the viewer's relationship to them, and it changes when the
+focus does. A headless check asserts it fits in the gap between rows so labels cannot push
+the layout around.
+
+### Verified by construction vs by observation
+
+Backend: 492 tests, including the query pins, en+ml label snapshots for the core kin set,
+and correctness against half-siblings, a second marriage, an unknown parent, a
+cross-family bridge and a disconnected pair. Frontend: 59 headless checks.
+
+Live-checked through the running API: setting the anchor, and the same six people labelled
+from two different focuses — from Jose, Thomas is *father* / അച്ഛൻ; from Kiran the same
+man is *great-grandfather* / മുതുമുത്തച്ഛൻ.
+
+Not verified: that the focus bar chips, the ring on the focus person and the chips on the
+cards actually look right and switch cleanly under a real pointer. There is no browser
+here. The click-script is the verification.

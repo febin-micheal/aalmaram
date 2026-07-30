@@ -42,6 +42,8 @@ export default function GraphCanvas({
   onAddRelative,
   onChooseUnion,
   onEditYear,
+  focusId,
+  labelFor,
   t,
 }) {
   const svgRef = useRef(null)
@@ -236,6 +238,8 @@ export default function GraphCanvas({
                 onActivate={() => !isDragging() && onActivate?.(person.id)}
                 onAddRelative={(context) => onAddRelative?.(context, person)}
                 onEditYear={() => onEditYear?.(person)}
+                isFocus={focusId === person.id}
+                relationLabel={labelFor?.(person.id) ?? null}
                 onExpand={(direction) => !isDragging() && onExpand(person, direction)}
                 t={t}
               />
@@ -278,6 +282,8 @@ function PersonCard({
   relateIndex,
   isExpanding,
   isActive,
+  isFocus,
+  relationLabel,
   hasParents: personHasParents,
   onSelect,
   onActivate,
@@ -304,11 +310,26 @@ function PersonCard({
         onSelect?.()
       }}
     >
+      {isFocus && (
+        // A ring outside the card, so "where am I looking from" is findable at a glance
+        // without changing the card's own geometry.
+        <rect
+          x={-5}
+          y={-5}
+          width={CARD_W + 10}
+          height={CARD_H + 10}
+          rx={13}
+          fill="none"
+          stroke="var(--accent-strong)"
+          strokeWidth={3}
+          opacity={0.85}
+        />
+      )}
       <rect
         width={CARD_W}
         height={CARD_H}
         rx={9}
-        fill="var(--card-bg)"
+        fill={isFocus ? 'var(--chip-bg)' : 'var(--card-bg)'}
         stroke={border}
         strokeWidth={isSelected || isCenter || isHighlighted ? 2.5 : 1}
         // Deceased people are drawn slightly recessed rather than greyed out; they are
@@ -346,6 +367,31 @@ function PersonCard({
           <circle r={9} cx={9} cy={9} fill="var(--accent-strong)" />
           <text x={9} y={13} textAnchor="middle" fill="#fff" style={{ fontSize: 11, fontWeight: 700 }}>
             {relateIndex === 0 ? 'A' : 'B'}
+          </text>
+        </g>
+      )}
+
+      {(relationLabel || isFocus) && (
+        // Sits above the card rather than inside it: the card's three lines are already
+        // the person's own facts, and this is a fact about the *viewer's* relationship
+        // to them, which changes when the focus does.
+        <g transform={`translate(${CARD_W / 2} -8)`}>
+          <rect
+            x={-Math.min(78, 5 + (isFocus ? 22 : relationLabel.length * 4.1))}
+            y={-15}
+            width={Math.min(156, 10 + (isFocus ? 44 : relationLabel.length * 8.2))}
+            height={19}
+            rx={9.5}
+            fill={isFocus ? 'var(--accent-strong)' : 'var(--chip-bg)'}
+            stroke={isFocus ? 'var(--accent-strong)' : 'var(--card-border)'}
+          />
+          <text
+            y={-1.5}
+            textAnchor="middle"
+            className={isFocus ? 'fill-white' : 'fill-[var(--ink)]'}
+            style={{ fontSize: 11, fontWeight: 600 }}
+          >
+            {isFocus ? t('focus.you') : truncate(relationLabel, 18)}
           </text>
         </g>
       )}

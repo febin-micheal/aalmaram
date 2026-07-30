@@ -14,12 +14,14 @@ Public API:
     relatives_within(p, degrees)                           — privacy radius
 """
 
+from . import naming
 from .lca import CommonAncestor, RelationshipResult, describe_relationship, lowest_common_ancestors
 from .naming import label_for
 from .neighborhood import Neighborhood
 from .neighborhood import neighborhood as build_neighborhood
 from .overview import Overview, build_overview
 from .privacy import relatives_within, visible_person_filter
+from .relate_bulk import MAX_TARGETS, BulkRelation, relate_bulk
 from .traversal import (
     ChildLink,
     EgoNetwork,
@@ -43,6 +45,8 @@ __all__ = [
     "CommonAncestor",
     "EgoNetwork",
     "Neighborhood",
+    "BulkRelation",
+    "MAX_TARGETS",
     "Overview",
     "ParentLink",
     "PartnerLink",
@@ -57,11 +61,13 @@ __all__ = [
     "describe_relationship",
     "ego_network",
     "label_for",
+    "naming",
     "build_neighborhood",
     "build_overview",
     "lowest_common_ancestors",
     "parents",
     "partners",
+    "relate_bulk",
     "relatives_within",
     "siblings",
     "visible_person_filter",

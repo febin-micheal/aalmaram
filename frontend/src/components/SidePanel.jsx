@@ -16,6 +16,9 @@ export default function SidePanel({
   onRelateFrom,
   onAddHousehold,
   onEdit,
+  isMe,
+  onClaimAsMe,
+  onUnclaimMe,
   onSelect,
 }) {
   const [editing, setEditing] = useState(false)
@@ -91,6 +94,18 @@ export default function SidePanel({
           className="rounded-lg bg-[var(--accent-strong)] px-3 py-2 text-sm font-medium text-white"
         >
           {t('panel.setCenter')}
+        </button>
+        {/* One anchor per user: claiming a new "me" moves it rather than adding a second. */}
+        <button
+          type="button"
+          onClick={() => (isMe ? onUnclaimMe?.() : onClaimAsMe?.(person))}
+          className={`rounded-lg px-3 py-2 text-sm font-medium ${
+            isMe
+              ? 'border border-[var(--accent-strong)] text-[var(--accent-strong)]'
+              : 'bg-[var(--accent-strong)] text-white'
+          }`}
+        >
+          {isMe ? t('focus.notMe') : t('focus.thisIsMe')}
         </button>
         <button
           type="button"

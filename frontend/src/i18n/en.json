@@ -95,5 +95,20 @@
   "edit.yearHelp": "A decade or a guess is fine. Leave blank or type ? if unknown.",
   "edit.nameEn": "Name (English)",
   "edit.nameMl": "Name (Malayalam)",
-  "empty.useForm": "Or add a whole household from a form"
+  "empty.useForm": "Or add a whole household from a form",
+  "focus.label": "Seen from",
+  "focus.me": "Me",
+  "focus.you": "you",
+  "focus.pin": "+ pin",
+  "focus.unpin": "Unpin {name}",
+  "focus.switchTo": "See the family from {name}'s point of view",
+  "focus.center": "Centre on focus",
+  "focus.loading": "labelling…",
+  "focus.thisIsMe": "This is me",
+  "focus.notMe": "Not me after all",
+  "focus.claimed": "You are now {name}. Relationships are shown from here.",
+  "focus.unclaimed": "Anchor cleared.",
+  "focus.isThisYou": "Is this you?",
+  "focus.yes": "Yes, this is me",
+  "focus.later": "Later"
 }

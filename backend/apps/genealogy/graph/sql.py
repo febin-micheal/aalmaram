@@ -68,6 +68,31 @@ SELECT person_id, MIN(depth) AS depth
  GROUP BY person_id
 """
 
+# Ancestors of *many* people at once, each row tagged with the seed it belongs to.
+#
+# This is what makes labelling a screenful of cards affordable. Asking "how is each of
+# these 40 people related to me?" one pair at a time costs ~8 queries per pair; seeding one
+# recursive walk with every person involved costs exactly one, whatever the count.
+ANCESTOR_DEPTHS_MULTI = f"""
+WITH RECURSIVE ancestry(seed, person_id, depth) AS (
+        SELECT seed.id, seed.id, 0
+          FROM unnest(%(seeds)s::uuid[]) AS seed(id)
+    UNION
+        SELECT ancestry.seed, parent.person_id, ancestry.depth + 1
+          FROM ancestry
+          JOIN {MEMBERSHIP} AS kid
+            ON kid.person_id = ancestry.person_id AND kid.role = 'child'
+          JOIN {MEMBERSHIP} AS parent
+            ON parent.union_id = kid.union_id AND parent.role = 'partner'
+          JOIN {PERSON} AS p
+            ON p.id = parent.person_id AND p.status = 'canonical'
+         WHERE ancestry.depth < %(max_depth)s
+)
+SELECT seed, person_id, MIN(depth) AS depth
+  FROM ancestry
+ GROUP BY seed, person_id
+"""
+
 # Shortest upward route from a descendant to one specific ancestor. Only ever called
 # with a target whose distance is already known, and the walk stops as soon as it
 # reaches the target, so the per-route rows stay tiny.

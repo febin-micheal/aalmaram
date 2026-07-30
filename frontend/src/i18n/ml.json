@@ -95,5 +95,20 @@
   "edit.yearHelp": "ദശകമോ ഏകദേശമോ മതി. അറിയില്ലെങ്കിൽ ? എന്നെഴുതുക.",
   "edit.nameEn": "പേര് (ഇംഗ്ലീഷ്)",
   "edit.nameMl": "പേര് (മലയാളം)",
-  "empty.useForm": "അല്ലെങ്കിൽ ഫോമിൽ ഒരു കുടുംബം മുഴുവൻ ചേർക്കുക"
+  "empty.useForm": "അല്ലെങ്കിൽ ഫോമിൽ ഒരു കുടുംബം മുഴുവൻ ചേർക്കുക",
+  "focus.label": "കാഴ്ചപ്പാട്",
+  "focus.me": "ഞാൻ",
+  "focus.you": "നിങ്ങൾ",
+  "focus.pin": "+ പിൻ",
+  "focus.unpin": "{name} നീക്കുക",
+  "focus.switchTo": "{name}യുടെ കാഴ്ചപ്പാടിൽ കാണുക",
+  "focus.center": "കേന്ദ്രത്തിലേക്ക്",
+  "focus.loading": "ബന്ധങ്ങൾ…",
+  "focus.thisIsMe": "ഇത് ഞാനാണ്",
+  "focus.notMe": "ഞാനല്ല",
+  "focus.claimed": "ഇനി നിങ്ങൾ {name}. ബന്ധങ്ങൾ ഇവിടെ നിന്ന് കാണിക്കും.",
+  "focus.unclaimed": "കാഴ്ചപ്പാട് മായ്ച്ചു.",
+  "focus.isThisYou": "ഇത് നിങ്ങളാണോ?",
+  "focus.yes": "അതെ, ഞാനാണ്",
+  "focus.later": "പിന്നീട്"
 }

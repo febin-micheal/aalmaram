@@ -897,4 +897,102 @@ check('growing from the first person produces correct geometry at each step', ()
   assert.ok(rowsDoNotOverlap(layout))
 })
 
+// ------------------------------------------------------------ ego-centric view
+
+console.log('\nrelationship labels and focus')
+
+/** The label chip is drawn above the card; this is the box it occupies. */
+function chipBox(label) {
+  const halfWidth = Math.min(78, 5 + label.length * 4.1)
+  return { top: -15 - 8, bottom: -8, halfWidth }
+}
+
+check('a label chip sits above its card and never overlaps the one below', () => {
+  // Cards are ROW_PITCH apart; the chip hangs above a card, so it must clear the bottom
+  // of the row above rather than colliding with it.
+  const box = chipBox('great-great-grandmother')
+  const gapAboveCard = ROW_PITCH - CARD_H
+  assert.ok(Math.abs(box.top) < gapAboveCard, `chip is ${Math.abs(box.top)}px tall, gap is ${gapAboveCard}px`)
+})
+
+check('a long Malayalam label stays inside a sensible width', () => {
+  // The widest fallback the naming layer produces, e.g. "5 തലമുറ മുകളിലുള്ള പൂർവികൻ".
+  const box = chipBox('5 തലമുറ മുകളിലുള്ള പൂർവികൻ')
+  assert.ok(box.halfWidth * 2 <= 156, 'chip must be capped, not unbounded')
+  assert.ok(box.halfWidth * 2 <= PHONE.width, 'a chip must never exceed a phone screen')
+})
+
+check('labelling is asked only for cards, never for dots', () => {
+  // A dot has no room for a chip, and asking about the whole archive on every focus
+  // switch is exactly the cost this feature has to avoid.
+  assert.equal(renderModeFor(CARD_ZOOM_THRESHOLD - 0.01), 'dots')
+  assert.equal(renderModeFor(CARD_ZOOM_THRESHOLD), 'cards')
+})
+
+check('only the visible set would be asked about', () => {
+  const layout = layoutOverview(overviewFixture())
+  const box = visibleBox({ x: 0, y: 0, k: CARD_ZOOM_THRESHOLD + 0.2 }, PHONE)
+  const visible = [...layout.persons.values()].filter((p) => intersects(p, box))
+
+  assert.ok(visible.length >= 1)
+  assert.ok(visible.length < layout.persons.size, 'the whole archive must not be labelled')
+  // And a batch of that size is well inside the server's per-call cap.
+  assert.ok(visible.length <= 200)
+})
+
+/** A tiny stand-in for useFocus's label lookup, exercising the same rules. */
+function makeLabelFor(focusId, byPerson) {
+  return (personId, locale = 'en') => {
+    if (!focusId || personId === focusId) return null
+    const entry = byPerson[personId]
+    if (!entry) return null
+    return entry.labels?.[locale] || entry.labels?.en || null
+  }
+}
+
+check('the focus person shows no relationship label', () => {
+  const labelFor = makeLabelFor('jose', { thomas: { labels: { en: 'father', ml: 'അച്ഛൻ' } } })
+  assert.equal(labelFor('jose'), null, 'the focus shows "you", not a relationship')
+  assert.equal(labelFor('thomas'), 'father')
+})
+
+check('a disconnected person shows no chip at all', () => {
+  const labelFor = makeLabelFor('jose', { thomas: { labels: { en: 'father' } }, stranger: null })
+  assert.equal(labelFor('stranger'), null, 'null must mean no chip, not an empty chip')
+  assert.equal(labelFor('never-asked'), null)
+})
+
+check('switching focus changes every label', () => {
+  const fromJose = makeLabelFor('jose', {
+    thomas: { labels: { en: 'father', ml: 'അച്ഛൻ' } },
+    chacko: { labels: { en: 'grandfather', ml: 'മുത്തച്ഛൻ' } },
+  })
+  const fromKiran = makeLabelFor('kiran', {
+    thomas: { labels: { en: 'great-grandfather', ml: '3 തലമുറ' } },
+    chacko: { labels: { en: 'great-great-grandfather', ml: '4 തലമുറ' } },
+  })
+
+  assert.equal(fromJose('thomas'), 'father')
+  assert.equal(fromKiran('thomas'), 'great-grandfather')
+  assert.notEqual(fromJose('chacko'), fromKiran('chacko'))
+})
+
+check('labels follow the UI language, falling back rather than blanking', () => {
+  const labelFor = makeLabelFor('jose', {
+    thomas: { labels: { en: 'father', ml: 'അച്ഛൻ' } },
+    // A relation with no Malayalam term recorded must not render empty.
+    distant: { labels: { en: 'third cousin', ml: '' } },
+  })
+  assert.equal(labelFor('thomas', 'ml'), 'അച്ഛൻ')
+  assert.equal(labelFor('distant', 'ml'), 'third cousin', 'must fall back to English, not blank')
+})
+
+check('the focus ring does not change the card geometry', () => {
+  // The ring is drawn outside the card so rows still pack at the same pitch.
+  const layout = layoutGraph(fixture(), 'thomas')
+  assert.ok(rowsDoNotOverlap(layout))
+  const ringInset = 5
+  assert.ok(CARD_GAP > ringInset * 2, 'the ring must fit in the gap between cards')
+})
+
 console.log(`\n${passed} check(s) passed`)
