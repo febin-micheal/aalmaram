@@ -23,9 +23,10 @@ PIDFILE="$HERE/launch.pid"
 
 INSTANCE_NAME=${INSTANCE_NAME:-aalmaram}
 SSH_PUBKEY=${SSH_PUBKEY:-$HOME/.ssh/aalmaram_deploy.pub}
-BASE_INTERVAL=${BASE_INTERVAL:-300}   # 5 minutes
+BASE_INTERVAL=${BASE_INTERVAL:-300}       # 5 minutes between real attempts
+THROTTLE_BACKOFF=${THROTTLE_BACKOFF:-900} # 15 minutes after an HTTP 429
 BIG_SHAPE_EVERY=${BIG_SHAPE_EVERY:-6}
-MAX_ATTEMPTS=${MAX_ATTEMPTS:-0}       # 0 = forever
+MAX_ATTEMPTS=${MAX_ATTEMPTS:-0}           # 0 = forever
 
 log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }
 
@@ -128,16 +129,27 @@ EOF
     exit 0
   fi
 
-  reason=$(echo "$out" | grep -oiE 'out of host capacity|outofcapacity|limitexceeded|internalerror|not authorized|quota' | head -1)
-  reason=${reason:-$(echo "$out" | tr '\n' ' ' | cut -c1-140)}
-  log "attempt $attempt (${OCPUS} OCPU / ${MEM} GB): $reason"
-
   # Anything that is not a capacity problem will not fix itself by waiting.
-  if echo "$out" | grep -qiE 'not authorized|NotAuthenticated|quota|LimitExceeded'; then
-    log "FATAL: this is not a capacity problem — stopping so it can be looked at"
-    log "$out" | head -20
+  if echo "$out" | grep -qiE 'NotAuthenticated|not authorized|NotAuthorizedOrNotFound|QuotaExceeded|LimitExceeded'; then
+    log "attempt $attempt: FATAL — not a capacity problem, stopping so it can be looked at"
+    echo "$out" | head -20 | tee -a "$LOG"
     exit 1
   fi
+
+  # Oracle rate-limits launch_instance per user (HTTP 429). Retrying through a throttle
+  # only deepens it, and a throttled attempt never had a chance at capacity — so back off
+  # hard and do not let it consume an attempt number or the big-shape rotation.
+  if echo "$out" | grep -qiE 'TooManyRequests|"status": 429'; then
+    attempt=$((attempt - 1))
+    log "throttled (429) — backing off ${THROTTLE_BACKOFF}s; this does not count as an attempt"
+    sleep $((THROTTLE_BACKOFF + RANDOM % 120))
+    continue
+  fi
+
+  # "Out of host capacity" arrives as a 500 InternalError for A1.Flex. That is the queue.
+  reason=$(echo "$out" | grep -oiE 'out of host capacity|outofcapacity|internalerror' | head -1)
+  reason=${reason:-$(echo "$out" | tr '\n' ' ' | cut -c1-140)}
+  log "attempt $attempt (${OCPUS} OCPU / ${MEM} GB): $reason"
 
   [ "$MAX_ATTEMPTS" -gt 0 ] && [ "$attempt" -ge "$MAX_ATTEMPTS" ] && { log "gave up after $attempt attempts"; exit 1; }
 

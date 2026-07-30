@@ -24,7 +24,9 @@ reused=()
 say() { printf '%s\n' "$*"; }
 die() { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
-C=$(oci iam compartment list --all --query "data[?\"lifecycle-state\"=='ACTIVE'] | [0].\"compartment-id\"" --raw-output 2>/dev/null)
+# The root compartment IS the tenancy — `compartment list` only returns its children, so
+# read the tenancy OCID straight from the CLI config.
+C=$(awk -F= '/^tenancy[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2}' "${OCI_CONFIG_FILE:-$HOME/.oci/config}" 2>/dev/null | head -1)
 COMPARTMENT=${COMPARTMENT_OCID:-$C}
 [ -n "$COMPARTMENT" ] || die "could not determine the root compartment OCID"
 say "compartment: $COMPARTMENT"
