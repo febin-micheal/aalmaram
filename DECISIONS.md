@@ -1148,3 +1148,85 @@ has to be faithful about *where events land*, not just that they were dispatched
 Dispatching straight at the element skips the browser's own targeting — which is the very
 thing that was broken. When a fix "works in the checks" and not in the browser, suspect the
 harness's model of the platform before re-reading the feature code.
+
+---
+
+## 29. Rendering a false kinship is a P0 invariant violation, guarded at render time and by properties
+
+**Context.** The fused-rail defect from #26 recurred within the hour, in a second form:
+adding a partner created a third union in a row and *its* connectors merged into one
+continuous rail. Two occurrences of one class in a single session of real data entry.
+
+The fix in #26 was real but scoped to the shape that had been reported — the **child bus**.
+A union draws two horizontal rails, and the other one, the **partner rail**, was still
+positioned from the generation alone (`union.y` is identical for every union in a row).
+Measured on the live archive: **15 fused segments, every one partner × partner.**
+
+Multiple unions per generation is not an edge case. It is the shape of every real family.
+
+### The standing rule
+
+**The renderer may not assert a relationship that is not in the data.** A chart is read as a
+claim: a rail says "these people are one sibling set", a drop-line says "these two are that
+child's parents". A wrong line is worse than a crash — a crash is obvious, and a false
+ancestry looks fine and gets copied into someone's family history. This class is P0.
+
+### 1. Invariants checked at render time, not only in tests
+
+`graph/renderTruth.js` runs after every layout, in the app, in the same spirit as the
+database CHECK constraints — the cheapest place to catch a false record is before it exists.
+It parses the **emitted path strings**, not the model, so a layout that computes the right
+answer and draws the wrong line still fails. Four rules:
+
+- every horizontal run maps to exactly one existing union;
+- no two runs of different unions touch, overlap or share a line;
+- every drop-line ends on a member of its own union;
+- no union's child sits inside another union's sibling run.
+
+Violations are **returned, not thrown**: a lie on the canvas is worse than a missing
+feature, but crashing the explorer over one bad rail is worse still. Dev shows an
+undismissable red banner naming the offending union ids; production logs and draws.
+
+### 2. Property-based testing, because example-based checks provably were not enough
+
+This is not a matter of opinion. With the shipped defect reintroduced, **all 75
+example-based layout checks pass**, while the property suite fails on **seed 1** — the first
+family it generates. Example checks encode the shapes someone thought of, and both bugs
+were "the shape I had just been shown". The class was always "any two unions in a row whose
+rails overlap".
+
+`scripts/check-properties.mjs` generates realistic families — 2-5 unions per row,
+remarriages, single-parent unions, 0-6 children, 2-4 generations — and asserts the
+invariants on the detail layout from several centres, on the packed overview, on every
+intermediate state of building the family up one person at a time, and on
+incremental-vs-full determinism. Seeded, so a failure prints a seed and the seed reproduces
+the family exactly. The two shapes found by eye ("binu", "Augustine") are pinned in the
+corpus for ever.
+
+### 3. What the properties then found
+
+Fixing the reported bug was the small part. Running the suite for the first time surfaced
+**97 violations**, all of them layout nondeterminism — the picture depending on the order
+the graph arrived in, meaning an incremental add and a reload draw different charts:
+
+- `unionIdsByGeneration` sorted by generation only, leaving same-generation ties in array
+  order. Relaxation shifts one union at a time and each shift moves the ground under the
+  next, so this alone reordered whole rows.
+- `spouseWithin` walked the row in array order, and the first sibling to claim a shared
+  spouse decides which side that spouse sits on.
+
+Neither was reported by anyone, neither was reachable from an example test, and both would
+have produced exactly the kind of "the graph rearranged itself" bug that is impossible to
+report usefully. 4000 generated families now pass.
+
+The bus fix itself was generalised: `assignUnionLanes()` lanes **every** horizontal run a
+union owns, in two bands — partner rails under the card row, child buses above the next —
+rather than special-casing an edge type, which is what let the class survive its first fix.
+
+### Why this is recorded as a contract and not a fix
+
+Two defects of one class shipped past a green suite in one afternoon. The lesson is not
+about buses; it is that **example-based checks cannot establish a universally-quantified
+property**, and layout correctness is universally quantified over family shapes. Every
+future layout change is now answerable to the properties, and the person entering their
+family should never be the thing that notices.

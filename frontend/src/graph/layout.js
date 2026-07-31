@@ -21,6 +21,8 @@
  * parent over its own children.
  */
 
+import { auditLayout } from './renderTruth.js'
+
 export const CARD_W = 178
 export const CARD_H = 64
 export const CARD_GAP = 26
@@ -32,8 +34,8 @@ export const CHILD_BUS = 34 // how far below the union node the sibling bus runs
 export const BUS_LANE_GAP = 13
 /** Horizontal clearance two buses need before they may share a lane. */
 export const BUS_MIN_GAP = 24
-/** Vertical room available for bus lanes, between the union node and the child row. */
-export const BUS_BAND = ROW_PITCH - CARD_H - UNION_DROP - 16
+/** How far a lane may sit either side of its band's centre. */
+export const BAND_HALF = 13
 
 const RELAX_PASSES = 8
 const DAMPING = 0.65
@@ -175,7 +177,11 @@ export function layoutGraph(graph, centerId) {
      * rather than stacking them all on one side.
      */
     const spouseWithin = new Map()
-    for (const id of ids) {
+    // Walked in seed order, not in the order the graph happened to list people: the first
+    // sibling to claim a shared spouse decides which side that spouse sits on, so an
+    // arbitrary walk order here made the whole row depend on the input order.
+    const claimOrder = [...ids].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
+    for (const id of claimOrder) {
       if (isSolo(id)) continue
       const base = indexAmongSiblings.get(id) ?? 0
       const spouses = []
@@ -224,8 +230,13 @@ export function layoutGraph(graph, centerId) {
   }
 
   // --- 3. relax -------------------------------------------------------------
+  // Total order, not just by generation: relaxation shifts groups one union at a time and
+  // each shift moves the ground under the next, so ties left to insertion order made the
+  // whole layout depend on the order the graph arrived in.
   const unionIdsByGeneration = [...unions.keys()].sort(
-    (a, b) => (unions.get(a).generation ?? 0) - (unions.get(b).generation ?? 0),
+    (a, b) =>
+      (unions.get(a).generation ?? 0) - (unions.get(b).generation ?? 0) ||
+      String(a).localeCompare(String(b)),
   )
   const midpoint = (ids) => {
     const values = ids.map((id) => x.get(id)).filter((v) => v !== undefined)
@@ -305,13 +316,15 @@ export function layoutGraph(graph, centerId) {
     union.childIds = kids
   }
 
-  // --- 5. edges -------------------------------------------------------------
+  // --- 5. rails and edges ---------------------------------------------------
+  // Lanes before edges: the paths are built from the ys this assigns.
+  assignUnionLanes(persons, unions)
   const edges = buildEdges(persons, unions, childrenOf)
 
   // --- 6. bounds ------------------------------------------------------------
   const bounds = boundsOf(persons)
 
-  return {
+  const layout = {
     persons,
     unions,
     edges,
@@ -321,6 +334,12 @@ export function layoutGraph(graph, centerId) {
     childrenOf,
     unionsAsChild,
   }
+
+  // The invariants run on every layout, not only under test. A chart that asserts a
+  // parentage nobody entered is worse than a missing feature, and the only place to catch
+  // it before a person reads it is here.
+  layout.violations = auditLayout(layout, 'detail layout')
+  return layout
 }
 
 /**
@@ -330,71 +349,93 @@ export function layoutGraph(graph, centerId) {
  * rebuild its connectors, rather than trying to translate baked SVG path strings.
  */
 /**
- * The horizontal run each union's sibling bus occupies: from its own drop-line across to
- * its outermost child.
+ * Give every union its own y for both of its horizontal rails.
+ *
+ * A union draws two: the **partner rail**, which each partner drops onto before running
+ * across to the union dot, and the **child bus**, which runs from the dot across to each
+ * child. Both used to be positioned from the generation alone — `union.y` is the same for
+ * every union in a row — so any two unions whose rails overlapped in x landed on one
+ * unbroken line. That reads as "all these people belong to all these parents".
+ *
+ * It was fixed once for the child bus and recurred within the hour on the partner rail,
+ * because the fix was per-edge-type rather than over the geometry. So this assigns lanes to
+ * **every** horizontal run a union owns, in two bands: partner rails just under the card
+ * row, child buses just above the next one. Within a band, unions whose spans come within
+ * `BUS_MIN_GAP` take different lanes — the usual interval-graph colouring — and the lanes
+ * are spread symmetrically around the band's centre, so the common unconflicted case draws
+ * exactly where it always did.
+ *
+ * Mutates `union.y` and `union.busY`. Called by `layoutGraph`, and again by the overview
+ * after it shifts families sideways, because that changes the spans and so can change which
+ * rails would collide.
  */
-const pushInto = (map, key, value) => {
-  if (!map.has(key)) map.set(key, [])
-  map.get(key).push(value)
-}
-
-function busSpan(union, persons) {
-  const xs = [union.x]
-  for (const childId of union.childIds ?? []) {
-    const child = persons.get(childId)
-    if (child) xs.push(child.cx)
+export function assignUnionLanes(persons, unions) {
+  const rows = new Map()
+  for (const [unionId, union] of unions) {
+    const rowBottom = (union.generation ?? 0) * ROW_PITCH + CARD_H
+    if (!rows.has(rowBottom)) rows.set(rowBottom, [])
+    rows.get(rowBottom).push({ unionId, union })
   }
-  return { x0: Math.min(...xs), x1: Math.max(...xs) }
+
+  for (const [rowBottom, entries] of rows) {
+    const partnerSpans = []
+    const childSpans = []
+    for (const { unionId, union } of entries) {
+      const partnerXs = (union.partnerIds ?? [])
+        .map((id) => persons.get(id)?.cx)
+        .filter((v) => v !== undefined)
+      if (partnerXs.length) {
+        partnerSpans.push({ unionId, x0: Math.min(union.x, ...partnerXs), x1: Math.max(union.x, ...partnerXs) })
+      }
+      const childXs = (union.childIds ?? [])
+        .map((id) => persons.get(id)?.cx)
+        .filter((v) => v !== undefined)
+      if (childXs.length) {
+        childSpans.push({ unionId, x0: Math.min(union.x, ...childXs), x1: Math.max(union.x, ...childXs) })
+      }
+    }
+
+    const partnerY = laneOffsets(partnerSpans)
+    const childY = laneOffsets(childSpans)
+    for (const { unionId, union } of entries) {
+      union.y = rowBottom + UNION_DROP + (partnerY.get(unionId) ?? 0)
+      union.busY = rowBottom + UNION_DROP + CHILD_BUS + (childY.get(unionId) ?? 0)
+    }
+  }
 }
 
 /**
- * Give every union's sibling bus a y at which it cannot touch another union's.
- *
- * A bus says "these children belong to this union". Two unions in the same generation
- * previously drew their buses at the same y — `union.y + CHILD_BUS` depends only on the
- * generation — so wherever their spans overlapped, two separate paths landed on one
- * unbroken horizontal line. The render then asserted a kinship that is not in the data:
- * every child on that rail appearing to belong to both sets of parents.
- *
- * Unions whose spans come within `BUS_MIN_GAP` of each other are therefore put on
- * different lanes. Lanes are spread around `CHILD_BUS` and squeezed to fit the band
- * between the union row and the child row, so a single unconflicted bus — overwhelmingly
- * the common case — still draws exactly where it always did.
+ * Interval-graph colouring: spans that come within `BUS_MIN_GAP` get different lanes.
+ * Returns a signed offset per union, centred on zero and squeezed to stay inside the band.
  */
-export function assignBusLanes(persons, unions) {
-  const byRow = new Map()
-  for (const [unionId, union] of unions) {
-    if (!union.childIds?.length) continue
-    pushInto(byRow, union.y, { unionId, ...busSpan(union, persons) })
+function laneOffsets(spans) {
+  const offsets = new Map()
+  if (!spans.length) return offsets
+
+  const ordered = [...spans].sort(
+    (a, b) => a.x0 - b.x0 || a.x1 - b.x1 || String(a.unionId).localeCompare(String(b.unionId)),
+  )
+  const lastEnd = []
+  const lane = new Map()
+  for (const span of ordered) {
+    let index = lastEnd.findIndex((end) => end + BUS_MIN_GAP <= span.x0)
+    if (index === -1) index = lastEnd.length
+    lastEnd[index] = span.x1
+    lane.set(span.unionId, index)
   }
 
-  const laneOf = new Map()
-  for (const entries of byRow.values()) {
-    entries.sort((a, b) => a.x0 - b.x0 || a.x1 - b.x1)
-    const lastEnd = [] // rightmost x reached in each lane so far
-    let used = 1
-    for (const entry of entries) {
-      let lane = lastEnd.findIndex((end) => end + BUS_MIN_GAP <= entry.x0)
-      if (lane === -1) lane = lastEnd.length
-      lastEnd[lane] = entry.x1
-      laneOf.set(entry.unionId, lane)
-      used = Math.max(used, lastEnd.length)
-    }
-    // Fit however many lanes were needed into the band, centred on the usual position.
-    const spacing = Math.min(BUS_LANE_GAP, BUS_BAND / used)
-    for (const entry of entries) {
-      const lane = laneOf.get(entry.unionId)
-      laneOf.set(entry.unionId, CHILD_BUS + (lane - (used - 1) / 2) * spacing)
-    }
+  const used = lastEnd.length
+  // Never zero: two rails one pixel apart still read as two, one rail read as two families
+  // does not. Squeezing is the lesser evil against ever sharing a y.
+  const spacing = used > 1 ? Math.max(2, Math.min(BUS_LANE_GAP, (2 * BAND_HALF) / (used - 1))) : 0
+  for (const [unionId, index] of lane) {
+    offsets.set(unionId, (index - (used - 1) / 2) * spacing)
   }
-  return laneOf
+  return offsets
 }
 
 export function buildEdges(persons, unions, childrenOf) {
   const edges = []
-  // Computed here rather than during placement so it survives the overview shifting a
-  // whole family sideways — that changes the spans, and so can change which buses collide.
-  const busOffset = assignBusLanes(persons, unions)
   for (const [unionId, union] of unions) {
     for (const partnerId of union.partnerIds ?? []) {
       const partner = persons.get(partnerId)
@@ -410,7 +451,7 @@ export function buildEdges(persons, unions, childrenOf) {
     }
 
     if (!union.childIds?.length) continue
-    const busY = union.y + (busOffset.get(unionId) ?? CHILD_BUS)
+    const busY = union.busY ?? union.y + CHILD_BUS
     for (const childId of union.childIds) {
       const child = persons.get(childId)
       if (!child) continue

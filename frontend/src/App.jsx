@@ -6,6 +6,7 @@ import FocusBar from './components/FocusBar.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import QuickAddDialog from './components/QuickAddDialog.jsx'
 import RelateBar from './components/RelateBar.jsx'
+import RenderTruthBanner from './components/RenderTruthBanner.jsx'
 import SeatChooser from './components/SeatChooser.jsx'
 import SidePanel from './components/SidePanel.jsx'
 import Toolbar from './components/Toolbar.jsx'
@@ -503,6 +504,10 @@ export default function App() {
         onPick={openPerson}
         loading={graph.loading || overview.loading}
       />
+
+      {/* Dev-only, and above everything: a false kinship on screen must not be something
+          you have to notice by eye. */}
+      {import.meta.env?.DEV && <RenderTruthBanner violations={layout?.violations} />}
 
       <FocusBar
         t={t}

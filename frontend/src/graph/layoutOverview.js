@@ -15,7 +15,17 @@
  * a shared timeline (see backend graph/overview.py), so packing only has to solve x.
  */
 
-import { CARD_GAP, CARD_H, CARD_W, ROW_PITCH, boundsOf, buildEdges, layoutGraph } from './layout.js'
+import {
+  CARD_GAP,
+  CARD_H,
+  CARD_W,
+  ROW_PITCH,
+  assignUnionLanes,
+  boundsOf,
+  buildEdges,
+  layoutGraph,
+} from './layout.js'
+import { auditLayout } from './renderTruth.js'
 
 /** Space left between two unrelated families. Wide enough to read as a separation. */
 export const COMPONENT_GAP = 220
@@ -75,6 +85,9 @@ export function layoutOverview(overview) {
     }
 
     // Connectors are rebuilt rather than translated — the paths are baked strings.
+    // Shifting the family sideways changed every span, so the rails are re-laned before
+    // their paths are rebuilt — otherwise two families packed side by side can collide.
+    assignUnionLanes(laid.persons, laid.unions)
     for (const edge of buildEdges(laid.persons, laid.unions, laid.childrenOf)) {
       merged.edges.push(edge)
     }
@@ -96,6 +109,9 @@ export function layoutOverview(overview) {
   )
   merged.componentCount = components.length
   merged.unattachedCount = unattached.length
+  // Packing families side by side can put two unrelated rails on the same line, so the
+  // overview is audited in its own right rather than trusting the per-family layouts.
+  merged.violations = auditLayout(merged, 'overview layout')
   return merged
 }
 
