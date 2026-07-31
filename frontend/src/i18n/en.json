@@ -118,5 +118,13 @@
   "seat.noChildren": "A union with no children recorded yet",
   "seat.newMarriage": "A separate marriage",
   "seat.newMarriageHint": "Creates a new union — the remarriage path",
-  "edit.secondParentHint": "Now the other parent — Enter to add, or Esc to leave it unknown"
+  "edit.secondParentHint": "Now the other parent — Enter to add, or Esc to leave it unknown",
+  "edit": {
+    "editName": "Rename",
+    "renameHint": "Enter saves · Esc cancels"
+  },
+  "toolbar": {
+    "undo": "Undo",
+    "redo": "Redo"
+  }
 }

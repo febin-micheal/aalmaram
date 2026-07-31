@@ -18,9 +18,11 @@ import { CARD_H, CARD_W } from './layout.js'
  * The server refuses with the candidates, and the editor moves into `choosing-union`
  * rather than picking. Crucially, no create request is sent again until a union is chosen.
  *
- * **Undo is narrow.** One step, implemented as the inverse API call (DELETE), and only for
- * a node just created. The server refuses once that node has acquired edges of its own, so
- * undo cannot become an accidental delete button.
+ * **Undo is a stack of real API calls.** Every step is inverted against the server rather
+ * than rewound locally, because the database is the record — a local-only undo would be a
+ * lie the next reload exposes. Steps unwind newest-first, and the server refuses to delete
+ * a node that has since acquired relatives of its own, so undo cannot become a bulk delete.
+ * Redo replays the same descriptors forward.
  */
 
 const IDLE = { mode: 'idle', draft: null, candidateUnions: [], openSeats: [], error: null }
@@ -28,7 +30,19 @@ const IDLE = { mode: 'idle', draft: null, candidateUnions: [], openSeats: [], er
 export function useEditor({ onApplied, onRemoved, onError }) {
   const [state, setState] = useState(IDLE)
   const [busy, setBusy] = useState(false)
-  const lastCreated = useRef(null)
+  /**
+   * The undo/redo stack.
+   *
+   * State, not a ref, because the toolbar buttons have to enable and disable as it
+   * changes. Each entry knows how to invert itself *and* how to re-apply itself, so undo
+   * and redo are the same machinery read in opposite directions.
+   */
+  const [history, setHistory] = useState({ past: [], future: [] })
+  const remember = useCallback((entry) => {
+    // Any new action discards the redo branch — the standard rule, and the only honest
+    // one once the graph has moved on from where those steps applied.
+    setHistory((current) => ({ past: [...current.past, entry], future: [] }))
+  }, [])
   // Every opened seat gets its own number. The input box focuses on this changing, so
   // chained seats (father then mother, sibling then sibling) can never collide the way a
   // key built from position or union id could.
@@ -79,7 +93,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
       setBusy(true)
       try {
         const created = await createPerson(payload)
-        lastCreated.current = created
+        remember({ kind: 'create', payload, created })
         onApplied?.(created)
 
         // "+ parents" opens the second seat straight away: father, Tab, mother, Enter.
@@ -162,7 +176,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         setBusy(false)
       }
     },
-    [state.draft, onApplied, onError],
+    [state.draft, onApplied, onError, remember],
   )
 
   /** Answer the "which marriage?" question by tapping one of the highlighted dots. */
@@ -173,13 +187,14 @@ export function useEditor({ onApplied, onRemoved, onError }) {
 
       setBusy(true)
       try {
-        const created = await createPerson({
+        const payload = {
           context: 'child_of_union',
           union: unionId,
           name_en: pendingName,
           gender: pendingGender ?? 'unknown',
-        })
-        lastCreated.current = created
+        }
+        const created = await createPerson(payload)
+        remember({ kind: 'create', payload, created })
         onApplied?.(created)
         setState(IDLE)
         return created
@@ -191,7 +206,7 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         setBusy(false)
       }
     },
-    [state, onApplied, onError],
+    [state, onApplied, onError, remember],
   )
 
   /** Answer the open-seat question: join this union, or start a new marriage. */
@@ -202,18 +217,17 @@ export function useEditor({ onApplied, onRemoved, onError }) {
 
       setBusy(true)
       try {
-        const created = await createPerson(
-          unionId
-            ? { context: 'partner_in_union', union: unionId, name_en: pendingName, gender: pendingGender }
-            : {
-                context: 'partner_of',
-                target: draft?.targetId,
-                name_en: pendingName,
-                gender: pendingGender,
-                force_new_union: true,
-              },
-        )
-        lastCreated.current = created
+        const payload = unionId
+          ? { context: 'partner_in_union', union: unionId, name_en: pendingName, gender: pendingGender }
+          : {
+              context: 'partner_of',
+              target: draft?.targetId,
+              name_en: pendingName,
+              gender: pendingGender,
+              force_new_union: true,
+            }
+        const created = await createPerson(payload)
+        remember({ kind: 'create', payload, created })
         onApplied?.(created)
         setState(IDLE)
         return created
@@ -225,30 +239,92 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         setBusy(false)
       }
     },
-    [state, onApplied, onError],
+    [state, onApplied, onError, remember],
   )
 
-  /** Single-step undo: the inverse API call for the node just created. */
-  const undo = useCallback(async () => {
-    const created = lastCreated.current
-    if (!created) return false
-    setBusy(true)
-    try {
-      // Joining someone already in the graph must not delete them: they are somebody
-      // else's relative and existed before this step.
-      const removed = created.created_person === false
-        ? await leaveUnion(created.union, created.person.id)
-        : await deletePerson(created.person.id)
-      lastCreated.current = null
-      onRemoved?.(removed, created)
-      return true
-    } catch (error) {
-      onError?.(error.detail ?? error.message)
-      return false
-    } finally {
-      setBusy(false)
+  /**
+   * Undo and redo, as one engine read in two directions.
+   *
+   * Every step is a real API call, not a local rewind — the database is the record, so an
+   * undo that only changed the canvas would be a lie the next reload exposes. Steps are
+   * taken newest-first, and the server refuses to delete a node that has since acquired
+   * relatives of its own (`not_provisional`), so a deep undo cannot become a bulk delete.
+   *
+   * **Redoing a creation makes a new node, not the old one back.** The row was really
+   * deleted, so the replacement gets a fresh id. That is why the stack entry is rewritten
+   * with the new response: a later undo must delete the node that now exists, not the one
+   * that does not. Nothing else can be holding a reference, because undo refuses once
+   * anything points at it.
+   */
+  const applyInverse = useCallback(async (entry) => {
+    if (entry.kind === 'edit') {
+      const updated = await updatePerson(entry.personId, entry.before)
+      onApplied?.({ person: updated, memberships: [], created_unions: [] })
+      return { entry, removedUnions: [] }
     }
-  }, [onRemoved, onError])
+    // Joining someone already in the graph must not delete them: they are somebody else's
+    // relative and existed before this step.
+    const removed = entry.created.created_person === false
+      ? await leaveUnion(entry.created.union, entry.created.person.id)
+      : await deletePerson(entry.created.person.id)
+    onRemoved?.(removed, entry.created)
+    return { entry, removedUnions: removed?.unions ?? [] }
+  }, [onApplied, onRemoved])
+
+  const applyForward = useCallback(async (entry) => {
+    if (entry.kind === 'edit') {
+      const updated = await updatePerson(entry.personId, entry.after)
+      onApplied?.({ person: updated, memberships: [], created_unions: [] })
+      return entry
+    }
+    const created = await createPerson(entry.payload)
+    onApplied?.(created)
+    return { ...entry, created }
+  }, [onApplied])
+
+  const step = useCallback(
+    async (direction) => {
+      // Read the stack straight from state. Peeking through a `setHistory` updater looks
+      // tempting but React does not run updaters synchronously, so the entry was always
+      // still null by the time it was needed.
+      const source = direction === 'undo' ? history.past : history.future
+      const entry = source[source.length - 1]
+      if (!entry) return false
+
+      setBusy(true)
+      try {
+        if (direction === 'redo') {
+          const settled = await applyForward(entry)
+          setHistory((current) => ({
+            past: [...current.past, settled],
+            future: current.future.slice(0, -1),
+          }))
+          return true
+        }
+
+        const { entry: settled, removedUnions } = await applyInverse(entry)
+        setHistory((current) => ({
+          past: current.past.slice(0, -1),
+          // Undoing the last partner out of a marriage deletes the marriage too, and a
+          // `partner_in_union` step cannot re-create one. Rather than let redo fail with a
+          // reference to a union that no longer exists, those steps leave the branch.
+          future: [...current.future, settled].filter(
+            (queued) => !(queued.payload?.union && removedUnions.includes(queued.payload.union)),
+          ),
+        }))
+        return true
+      } catch (error) {
+        onError?.(error.detail ?? error.message)
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [history, applyInverse, applyForward, onError],
+  )
+
+  const undo = useCallback(() => step('undo'), [step])
+  const redo = useCallback(() => step('redo'), [step])
 
   /**
    * Inline field edit. Optimistic: the card updates at once and rolls back on refusal,
@@ -262,6 +338,14 @@ export function useEditor({ onApplied, onRemoved, onError }) {
       try {
         const updated = await updatePerson(person.id, fields)
         onApplied?.({ person: updated, memberships: [], created_unions: [] })
+        // Undo restores exactly the fields this edit touched, not the whole record — so
+        // undoing a rename cannot silently revert someone else's concurrent change.
+        remember({
+          kind: 'edit',
+          personId: person.id,
+          before: Object.fromEntries(Object.keys(fields).map((key) => [key, before[key] ?? null])),
+          after: fields,
+        })
         return updated
       } catch (error) {
         onApplied?.({ person: before, memberships: [], created_unions: [] })
@@ -269,23 +353,23 @@ export function useEditor({ onApplied, onRemoved, onError }) {
         return null
       }
     },
-    [onApplied, onError],
+    [onApplied, onError, remember],
   )
 
   return {
     ...state,
     busy,
-    canUndo: Boolean(lastCreated.current),
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0,
+    undoDepth: history.past.length,
     begin,
     cancel,
     commit,
     chooseUnion,
     resolveSeat,
     undo,
+    redo,
     editPerson,
-    forgetUndo: () => {
-      lastCreated.current = null
-    },
   }
 }
 

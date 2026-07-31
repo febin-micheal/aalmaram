@@ -118,5 +118,13 @@
   "seat.noChildren": "മക്കൾ രേഖപ്പെടുത്താത്ത ബന്ധം",
   "seat.newMarriage": "വേറൊരു വിവാഹം",
   "seat.newMarriageHint": "പുതിയ ബന്ധം ഉണ്ടാക്കുന്നു — രണ്ടാം വിവാഹം",
-  "edit.secondParentHint": "ഇനി മറ്റേ രക്ഷിതാവ് — Enter ചേർക്കാൻ, അറിയില്ലെങ്കിൽ Esc"
+  "edit.secondParentHint": "ഇനി മറ്റേ രക്ഷിതാവ് — Enter ചേർക്കാൻ, അറിയില്ലെങ്കിൽ Esc",
+  "edit": {
+    "editName": "പേര് മാറ്റുക",
+    "renameHint": "Enter സേവ് ചെയ്യും · Esc റദ്ദാക്കും"
+  },
+  "toolbar": {
+    "undo": "പഴയപടിയാക്കുക",
+    "redo": "വീണ്ടും ചെയ്യുക"
+  }
 }

@@ -42,6 +42,7 @@ export default function GraphCanvas({
   onAddRelative,
   onChooseUnion,
   onEditYear,
+  onEditName,
   focusId,
   labelFor,
   t,
@@ -244,6 +245,7 @@ export default function GraphCanvas({
                   onAddRelative ? (context) => onAddRelative(context, person) : undefined
                 }
                 onEditYear={() => onEditYear?.(person)}
+                onEditName={() => onEditName?.(person)}
                 isFocus={focusId === person.id}
                 relationLabel={labelFor?.(person.id) ?? null}
                 onExpand={(direction) => !isDragging() && onExpand(person, direction)}
@@ -295,6 +297,7 @@ function PersonCard({
   onActivate,
   onAddRelative,
   onEditYear,
+  onEditName,
   onExpand,
   t,
 }) {
@@ -349,9 +352,22 @@ function PersonCard({
         <rect x={CARD_W - 5} width={5} height={CARD_H} rx={2.5} fill="var(--edge)" opacity={0.6} />
       )}
 
-      <text x={16} y={23} className="fill-[var(--ink)]" style={{ fontSize: 14, fontWeight: 600 }}>
-        {truncate(name, 20)}
-      </text>
+      {/* The name is the field people fix most — a misheard spelling, a missing initial —
+          so it is editable in place, exactly like the years below it. */}
+      <g
+        className="cursor-text"
+        data-edit-name={person.id}
+        onClick={(event) => {
+          event.stopPropagation()
+          onEditName?.()
+        }}
+      >
+        <title>{t('edit.editName')}</title>
+        <rect x={12} y={8} width={CARD_W - 24} height={20} rx={4} fill="transparent" />
+        <text x={16} y={23} className="fill-[var(--ink)]" style={{ fontSize: 14, fontWeight: 600 }}>
+          {truncate(name, 20)}
+        </text>
+      </g>
       <text x={16} y={39} className="fill-[var(--muted)]" style={{ fontSize: 11 }}>
         {truncate(secondary || person.house_name || '', 26)}
       </text>

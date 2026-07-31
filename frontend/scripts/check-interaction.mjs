@@ -356,19 +356,62 @@ function overviewPayload() {
 /** Serve the endpoints App opens with; record anything else so gaps are visible. */
 function stubApi() {
   const seen = []
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init = {}) => {
     const url = String(input?.url ?? input)
-    seen.push(url)
+    const method = init.method ?? 'GET'
+    seen.push({ url, method, body: init.body ? JSON.parse(init.body) : null })
     const body = url.includes('/overview/')
       ? overviewPayload()
       : url.includes('/me/')
         ? { anchor_person: null }
         : url.includes('/relate-bulk/')
           ? { from: null, results: {} }
-          : {}
+          : url.includes('/persons/') && method === 'POST'
+            ? {
+                person: { id: 'made-up', display_name: 'New', name_en: 'New', generation: 0 },
+                union: 'u',
+                memberships: [],
+                created_unions: [],
+                created_person: true,
+              }
+            : url.includes('/persons/') && method === 'DELETE'
+              ? { person: 'made-up', unions: [] }
+              : url.includes('/persons/') && method === 'PATCH'
+                ? { id: 'clement', name_en: 'Renamed', display_name: 'Renamed', generation: 0 }
+                : {}
     return { ok: true, status: 200, statusText: 'OK', json: async () => body }
   }
   return seen
+}
+
+/** Mount the whole app on the three-person overview and settle its effects. */
+async function mountApp() {
+  const requests = stubApi()
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.append(container)
+  const appRoot = ReactDOMClient.createRoot(container)
+  await act(async () => {
+    appRoot.render(React.createElement(App))
+  })
+  await act(async () => {})
+  return {
+    container,
+    requests,
+    q: (selector) => container.querySelector(selector),
+    cleanup: () => {
+      act(() => appRoot.unmount())
+      container.remove()
+    },
+  }
+}
+
+async function pressKey(key, init = {}) {
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }),
+    )
+  })
+  await act(async () => {})
 }
 
 check('the reported state: overview of a real archive, + parents opens an input', async () => {
@@ -385,7 +428,7 @@ check('the reported state: overview of a real archive, + parents opens an input'
   await act(async () => {})
 
   assert.ok(
-    requests.some((url) => url.includes('/overview/')),
+    requests.some((r) => r.url.includes('/overview/')),
     'the app should have loaded the overview',
   )
   assert.equal(
@@ -455,6 +498,129 @@ check('a child who already has parents is never offered more', () => {
   const wouldBe = { cx: child.x + CARD_W / 2, cy: child.y - 6 - 22 }
   const distance = Math.hypot(wouldBe.cx - parentUnion.x, wouldBe.cy - parentUnion.y)
   assert.ok(distance < 66, `expected the suppressed button to be near the dot, was ${distance.toFixed(0)}px`)
+})
+
+console.log('\nediting, escape and history')
+
+check('clicking a name opens a rename box already holding that name', () => {
+  // The reported gap: a person added to the graph could not be corrected on the canvas.
+  return (async () => {
+    const app = await mountApp()
+    assert.equal(app.q('[data-inline-input]'), null)
+
+    const nameHit = app.q('[data-edit-name="clement"]')
+    assert.ok(nameHit, 'the name on a card must be a target you can click')
+    await clickElement(nameHit)
+
+    const input = app.q('[data-inline-input]')
+    assert.ok(input, 'clicking the name opened nothing')
+    assert.equal(input.value, 'Clement', 'the box should start from the current name')
+    app.cleanup()
+  })()
+})
+
+check('Escape closes the rename box from anywhere, not only inside it', () => {
+  // Escape used to be handled only by the input's own keydown, so it worked while the
+  // caret was in the box and nowhere else.
+  return (async () => {
+    const app = await mountApp()
+    await clickElement(app.q('[data-edit-name="clement"]'))
+    assert.ok(app.q('[data-inline-input]'))
+
+    // Dispatched on window, as if focus had moved away from the input.
+    await pressKey('Escape')
+
+    assert.equal(app.q('[data-inline-input]'), null, 'Escape did not close the box')
+    app.cleanup()
+  })()
+})
+
+check('Escape cancels a half-finished add', () => {
+  return (async () => {
+    const app = await mountApp()
+    await clickElement(app.q('[data-affordance="parent_of"]'))
+    assert.ok(app.q('[data-inline-input]'), 'the add flow should be open')
+
+    await pressKey('Escape')
+    assert.equal(app.q('[data-inline-input]'), null, 'Escape must cancel a draft too')
+    app.cleanup()
+  })()
+})
+
+check('undo and redo are real buttons, disabled until there is something to do', () => {
+  return (async () => {
+    const app = await mountApp()
+    const undo = app.q('button[data-action="undo"]')
+    const redo = app.q('button[data-action="redo"]')
+    assert.ok(undo && redo, 'both buttons must exist in the toolbar')
+    assert.equal(undo.disabled, true, 'nothing has happened yet — undo must be inert')
+    assert.equal(redo.disabled, true)
+    app.cleanup()
+  })()
+})
+
+check('after adding someone, undo enables and calls the server', () => {
+  return (async () => {
+    const app = await mountApp()
+    await clickElement(app.q('[data-affordance="child_of_person"]'))
+    const input = app.q('[data-inline-input]')
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, 'Newborn')
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await act(async () => {})
+
+    const posted = app.requests.filter((r) => r.method === 'POST' && r.url.includes('/persons/'))
+    assert.equal(posted.length, 1, 'the name should have been sent once')
+
+    const undo = app.q('button[data-action="undo"]')
+    assert.equal(undo.disabled, false, 'undo must become available after a creation')
+
+    // Undo is an API call, not a local rewind — the database is the record.
+    await clickElement(undo)
+    const deleted = app.requests.filter((r) => r.method === 'DELETE')
+    assert.equal(deleted.length, 1, 'undo must ask the server to remove the node')
+
+    // And redo replays it forward.
+    const redo = app.q('button[data-action="redo"]')
+    assert.equal(redo.disabled, false, 'redo must be available straight after an undo')
+    await clickElement(redo)
+    const reposted = app.requests.filter((r) => r.method === 'POST' && r.url.includes('/persons/'))
+    assert.equal(reposted.length, 2, 'redo must re-create through the same endpoint')
+    assert.deepEqual(reposted[1].body, reposted[0].body, 'redo must replay the same request')
+    app.cleanup()
+  })()
+})
+
+check('Ctrl+Z and Ctrl+Y drive the same history as the buttons', () => {
+  return (async () => {
+    const app = await mountApp()
+    await clickElement(app.q('[data-affordance="child_of_person"]'))
+    const input = app.q('[data-inline-input]')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, 'Newborn')
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await act(async () => {})
+
+    await pressKey('z', { ctrlKey: true })
+    assert.equal(app.requests.filter((r) => r.method === 'DELETE').length, 1, 'Ctrl+Z must undo')
+
+    await pressKey('y', { ctrlKey: true })
+    assert.equal(
+      app.requests.filter((r) => r.method === 'POST' && r.url.includes('/persons/')).length,
+      2,
+      'Ctrl+Y must redo',
+    )
+    app.cleanup()
+  })()
 })
 
 await runQueue()

@@ -41,6 +41,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [activeId, setActiveId] = useState(null)
   const [yearEditFor, setYearEditFor] = useState(null)
+  const [nameEditFor, setNameEditFor] = useState(null)
   // True once "Add the first person" is clicked on an empty archive: the canvas takes
   // over from the empty screen even though there is nothing on it yet.
   const [startingFirstPerson, setStartingFirstPerson] = useState(false)
@@ -193,17 +194,54 @@ export default function App() {
     [editor, showToast, t, overview],
   )
 
-  // Ctrl/Cmd+Z undoes the last creation, anywhere on the page.
+  /**
+   * Escape closes the topmost thing, innermost first.
+   *
+   * It used to be handled only inside the name input, so it worked while the caret was in
+   * the box and nowhere else — press it after clicking away, or while the canvas was asking
+   * which marriage a child belongs to, and nothing happened. A component that has already
+   * dealt with the key calls `preventDefault`, and this skips those.
+   */
+  const escape = useCallback(() => {
+    if (quickAddOpen) return setQuickAddOpen(false)
+    if (nameEditFor) return setNameEditFor(null)
+    if (yearEditFor) return setYearEditFor(null)
+    if (editor.mode !== 'idle') {
+      // Covers placing, choosing-union and choosing-seat alike.
+      editor.cancel()
+      setStartingFirstPerson(false)
+      return undefined
+    }
+    if (relate.active) return setRelate(IDLE_RELATE)
+    if (searchHighlight.length) return setSearchHighlight([])
+    if (selectedId) return setSelectedId(null)
+    return undefined
+  }, [quickAddOpen, nameEditFor, yearEditFor, editor, relate.active, searchHighlight.length, selectedId])
+
+  // Ctrl/Cmd+Z undoes, Ctrl+Y (or Ctrl/Cmd+Shift+Z) redoes, anywhere on the page.
   useEffect(() => {
     const onKey = (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
         event.preventDefault()
-        editor.undo()
+        escape()
+        return
+      }
+      const accel = event.ctrlKey || event.metaKey
+      if (accel && event.key.toLowerCase() === 'y') {
+        event.preventDefault()
+        editor.redo()
+        return
+      }
+      if (accel && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) editor.redo()
+        else editor.undo()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [editor])
+  }, [editor, escape])
 
   const openPerson = useCallback(
     async (person) => {
@@ -303,6 +341,17 @@ export default function App() {
    * fall off the right edge, and an input you cannot see is worse than one slightly out of
    * place.
    */
+  /** Screen position for the rename box: over the card it is renaming. */
+  const renameScreen = useMemo(() => {
+    const person = nameEditFor && layout?.persons.get(nameEditFor.id)
+    const transform = controls.current.transform
+    if (!person || !transform) return { x: 24, y: 96 }
+    const point = toScreen(transform, person)
+    const width = window.innerWidth || 390
+    return { x: Math.max(8, Math.min(point.x, width - 260)), y: Math.max(56, point.y) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameEditFor, renderMode, layout])
+
   const draftScreen = useMemo(() => {
     const position = editor.draft?.position
     const transform = controls.current.transform
@@ -440,6 +489,16 @@ export default function App() {
         onZoomOut={() => controls.current.zoomBy?.(0.7)}
         onOverview={backToOverview}
         onAddHousehold={() => openQuickAdd(null)}
+        onUndo={() => {
+          setToast(null)
+          editor.undo()
+        }}
+        onRedo={() => {
+          setToast(null)
+          editor.redo()
+        }}
+        canUndo={editor.canUndo}
+        canRedo={editor.canRedo}
         onHighlight={setSearchHighlight}
         onPick={openPerson}
         loading={graph.loading || overview.loading}
@@ -485,6 +544,7 @@ export default function App() {
           onAddRelative={relate.active ? undefined : startAdd}
           onChooseUnion={chooseUnion}
           onEditYear={(person) => setYearEditFor(person)}
+          onEditName={(person) => setNameEditFor(person)}
           focusId={focus.activeId}
           labelFor={(personId) => focus.labelFor(personId, locale)}
           registerControls={(api) => {
@@ -492,6 +552,28 @@ export default function App() {
           }}
           t={t}
         />
+
+        {nameEditFor && (
+          <InlineInput
+            focusKey={`rename:${nameEditFor.id}`}
+            screenX={renameScreen.x}
+            screenY={renameScreen.y}
+            busy={editor.busy}
+            hint={t('edit.renameHint')}
+            initialValue={nameEditFor.name_en || nameEditFor.display_name || ''}
+            initialGender={nameEditFor.gender ?? 'unknown'}
+            onCancel={() => setNameEditFor(null)}
+            onCommit={async (value, { gender }) => {
+              const person = nameEditFor
+              setNameEditFor(null)
+              const fields = { name_en: value }
+              if (gender && gender !== (person.gender ?? 'unknown')) fields.gender = gender
+              await editor.editPerson(person, fields)
+              overview.refresh().catch(() => {})
+            }}
+            t={t}
+          />
+        )}
 
         {editor.mode === 'placing' && editor.draft && (
           <InlineInput

@@ -1032,3 +1032,73 @@ canvas-wide over every fixture; a new child landing among its siblings; layout i
 under input reordering; and viewport-anchor arithmetic still returning the anchor to its
 original screen point. Five of the six fail against the pre-fix layout, each with a precise
 message — the sixth is a regression guard, so it passes both ways by design.
+
+---
+
+## 27. Undo is a stack of inverse API calls; Escape is global; names are editable in place
+
+**Context.** Three gaps reported together from real data entry: an already-added node could
+not be corrected on the canvas, Escape did nothing, and there was one level of undo with no
+redo and no visible control.
+
+### Editing an existing node
+
+The machinery existed — `editPerson` does an optimistic update with rollback — but the only
+thing wired to it on the canvas was the year field. The side panel had a full form behind an
+Edit button, which is not where someone reciting a family is looking.
+
+The **name is now editable in place**, exactly like the years directly below it: click it, a
+box opens holding the current name with the text selected, Enter saves and Escape cancels.
+Selecting the text means typing replaces it while the caret is still there for a one-letter
+correction, which is the common case — a misheard spelling, a missing initial.
+
+### Escape
+
+It was handled only inside the name input's own `keydown`, so it worked while the caret was
+in the box and nowhere else. Pressing it after clicking away, or while the canvas was asking
+which marriage a child belongs to, did nothing.
+
+Escape is now a window-level handler that closes **the topmost thing, innermost first**:
+quick-add dialog → rename box → year box → any editor mode (placing, choosing-union,
+choosing-seat) → relate mode → search highlight → selection. A component that has already
+handled the key calls `preventDefault`, and the global handler skips those, so the inline
+input still cancels itself without also clearing the selection behind it.
+
+### Undo and redo
+
+Undo was a single slot holding the last creation, exposed as `canUndo: Boolean(ref.current)`
+— read from a ref, so a button bound to it would never have re-rendered when it changed.
+
+It is now a proper stack in state, with `past` and `future`. Each entry knows how to invert
+itself and how to re-apply itself, so undo and redo are one engine read in two directions.
+Toolbar buttons (disabled when there is nothing to do, which is also how you find that out),
+Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+Shift+Z.
+
+**Every step is a real API call, not a local rewind.** The database is the record; an undo
+that only changed the canvas would be a lie the next reload exposes. Steps unwind
+newest-first, and the server still refuses to delete a node that has acquired relatives of
+its own, so a deep undo cannot become a bulk delete.
+
+**Redoing a creation makes a new node, not the old one back.** The row was really deleted,
+so the replacement gets a fresh id, and the stack entry is rewritten with the new response —
+a later undo must delete the node that now exists. Nothing else can hold a stale reference,
+because undo refuses once anything points at the node.
+
+**One case cannot be redone, and says so by disappearing.** Undoing the last partner out of
+a marriage deletes the marriage too (`removed_unions`), and a `partner_in_union` step cannot
+re-create one. Rather than let redo fail against a union that no longer exists, those
+entries are dropped from the redo branch when the undo reports the union gone. Undo edits
+restore only the fields that edit touched, so undoing a rename cannot revert an unrelated
+concurrent change.
+
+**A bug this turned up in my own work:** `step()` first peeked at the stack through a
+`setHistory` updater. React does not run updaters synchronously, so the entry was always
+still null and undo silently did nothing — caught by the interaction check asserting that
+undo issues a DELETE, not by reading the code.
+
+**Tests.** Six interaction checks driving the real app: clicking a name opens a box holding
+that name; Escape closes it when dispatched on the window rather than the input; Escape
+cancels a half-finished add; the buttons exist and are inert until there is something to do;
+undo issues a DELETE and redo re-POSTs *the same payload*; and the keyboard shortcuts drive
+the same history as the buttons. The whole-app mounts are memory-hungry, so
+`check:interaction` runs with a raised heap rather than with its coverage trimmed.

@@ -11,9 +11,21 @@ import { useEffect, useRef, useState } from 'react'
  * Keys: Enter commits, Tab commits and opens the next sibling, Escape cancels. m and f set
  * gender when the field is empty — a single keystroke rather than a control to aim at.
  */
-export default function InlineInput({ screenX, screenY, busy, hint, focusKey, onCommit, onCancel, t }) {
-  const [value, setValue] = useState('')
-  const [gender, setGender] = useState('unknown')
+export default function InlineInput({
+  screenX,
+  screenY,
+  busy,
+  hint,
+  focusKey,
+  initialValue = '',
+  initialGender = 'unknown',
+  submitLabel,
+  onCommit,
+  onCancel,
+  t,
+}) {
+  const [value, setValue] = useState(initialValue)
+  const [gender, setGender] = useState(initialGender)
   const input = useRef(null)
 
   /**
@@ -27,14 +39,20 @@ export default function InlineInput({ screenX, screenY, busy, hint, focusKey, on
    * makes the behaviour independent of whether React reuses the node.
    */
   useEffect(() => {
-    setValue('')
-    setGender('unknown')
+    setValue(initialValue)
+    setGender(initialGender)
     const node = input.current
     if (!node) return
     // After paint: the box is positioned from a fresh transform, and on iOS focusing a
     // not-yet-laid-out input is what makes the keyboard open against the wrong element.
-    const frame = requestAnimationFrame(() => node.focus())
+    const frame = requestAnimationFrame(() => {
+      node.focus()
+      // Renaming starts with the old name selected, so typing replaces it and the caret is
+      // still there for a small correction.
+      if (initialValue) node.select()
+    })
     return () => cancelAnimationFrame(frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey])
 
   const submit = (andSibling) => {
@@ -43,8 +61,8 @@ export default function InlineInput({ screenX, screenY, busy, hint, focusKey, on
       return
     }
     onCommit(value.trim(), { gender, andSibling })
-    setValue('')
-    setGender('unknown')
+    setValue(initialValue)
+    setGender(initialGender)
   }
 
   return (
@@ -85,7 +103,7 @@ export default function InlineInput({ screenX, screenY, busy, hint, focusKey, on
         <GenderToggle value={gender} onChange={setGender} t={t} />
       </div>
       <p className="mt-1 rounded bg-[var(--card-bg)] px-2 py-0.5 text-[11px] opacity-70 shadow">
-        {hint ?? t('edit.hint')}
+        {hint ?? submitLabel ?? t('edit.hint')}
       </p>
     </div>
   )
