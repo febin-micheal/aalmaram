@@ -21,11 +21,14 @@
  * parent over its own children.
  */
 
+import { orderRows } from './ordering.js'
 import { auditLayout } from './renderTruth.js'
 
 export const CARD_W = 178
 export const CARD_H = 64
 export const CARD_GAP = 26
+/** Between two different sibling sets — visibly wider, so families read as families. */
+export const FAMILY_GAP = 72
 export const ROW_GAP = 104
 export const ROW_PITCH = CARD_H + ROW_GAP
 export const UNION_DROP = 34 // how far below the partner row a union node sits
@@ -36,6 +39,8 @@ export const BUS_LANE_GAP = 13
 export const BUS_MIN_GAP = 24
 /** How far a lane may sit either side of its band's centre. */
 export const BAND_HALF = 13
+/** Clearance a corridor keeps from the cards either side of it. */
+export const CORRIDOR_MARGIN = 14
 
 const RELAX_PASSES = 8
 const DAMPING = 0.65
@@ -130,103 +135,35 @@ export function layoutGraph(graph, centerId) {
   const rows = new Map() // generation -> [personId]
   for (const [id, person] of persons) push(rows, person.generation ?? 0, id)
 
-  /**
-   * Where a person sits among their own siblings — their union of birth, and their index
-   * within it. Someone with no recorded parents is their own group of one.
-   */
+  // Ordering is its own phase — see ordering.js. It decides left-to-right within every
+  // row under one hard constraint (a union's children stay contiguous, because a sibling
+  // bus spans them) and two soft ones (partners adjacent, few crossings between rows).
+  const ordered = orderRows({
+    persons,
+    rows,
+    partnersOf,
+    childrenOf,
+    unionsAsPartner,
+    unionsAsChild,
+    seedOrder: order,
+  })
+  for (const [generation, ids] of ordered) rows.set(generation, ids)
+
+  /** Which union's children a person belongs to — used for the family gap below. */
   const birthGroupOf = (id) => (unionsAsChild.get(id) ?? [])[0] ?? `solo:${id}`
-  const indexAmongSiblings = new Map()
-  for (const kids of childrenOf.values()) {
-    kids.forEach((kid, index) => indexAmongSiblings.set(kid.person, index))
-  }
-
-  /**
-   * Order each row by sibling group, keeping every group unbroken.
-   *
-   * The walk above is a depth-first traversal, so it can wander from one child into that
-   * child's marriage and number a same-generation in-law before coming back for the next
-   * sibling. The row then interleaves two families — and nothing downstream can recover,
-   * because relaxation only ever shifts groups and `separateRows` preserves whatever left
-   * to right order it is given. That is how a newly added child ended up beyond an
-   * unrelated family instead of beside its siblings.
-   *
-   * So the row is ordered by *group*, not by person: groups take the position of their
-   * earliest-visited member, and within a group siblings sit in recorded birth order.
-   * A union's children are therefore always adjacent, whatever the walk did.
-   */
-  for (const [generation, ids] of rows) {
-    const inRow = new Set(ids)
-
-    /**
-     * Which block a person belongs to. Someone with recorded parents belongs to their
-     * siblings; someone without joins the block of a partner who has some, so a couple is
-     * not split; failing both, they are a block of one.
-     *
-     * The rule is that two *birth groups* never interleave. A married-in spouse sitting
-     * between two siblings is fine — no drop-line goes to them, and keeping them beside
-     * their partner is worth more than a perfectly unbroken sibling run.
-     */
-    const isSolo = (id) => String(birthGroupOf(id)).startsWith('solo:')
-
-    /**
-     * Married-in spouses, placed around the sibling they married.
-     *
-     * Someone with two marriages is drawn between their two spouses, which is what makes a
-     * remarriage legible — one person sitting between two union nodes, each with its own
-     * children. So the first spouse goes to the sibling's left and the rest to the right,
-     * rather than stacking them all on one side.
-     */
-    const spouseWithin = new Map()
-    // Walked in seed order, not in the order the graph happened to list people: the first
-    // sibling to claim a shared spouse decides which side that spouse sits on, so an
-    // arbitrary walk order here made the whole row depend on the input order.
-    const claimOrder = [...ids].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
-    for (const id of claimOrder) {
-      if (isSolo(id)) continue
-      const base = indexAmongSiblings.get(id) ?? 0
-      const spouses = []
-      for (const unionId of unionsAsPartner.get(id) ?? []) {
-        for (const partnerId of partnersOf.get(unionId) ?? []) {
-          if (partnerId !== id && inRow.has(partnerId) && isSolo(partnerId) && !spouseWithin.has(partnerId)) {
-            spouses.push(partnerId)
-            spouseWithin.set(partnerId, null) // claimed; filled in below
-          }
-        }
-      }
-      spouses.forEach((partnerId, index) => {
-        spouseWithin.set(partnerId, {
-          key: birthGroupOf(id),
-          within: index === 0 ? base - 0.5 : base + 0.5 + (index - 1) * 0.01,
-        })
-      })
-    }
-
-    const blockOf = (id) => {
-      if (!isSolo(id)) return { key: birthGroupOf(id), within: indexAmongSiblings.get(id) ?? 0 }
-      return spouseWithin.get(id) ?? { key: birthGroupOf(id), within: 0 }
-    }
-
-    const block = new Map(ids.map((id) => [id, blockOf(id)]))
-    const blockSeed = new Map()
-    for (const id of ids) {
-      const { key } = block.get(id)
-      const seed = order.get(id) ?? Number.MAX_SAFE_INTEGER
-      if (!blockSeed.has(key) || seed < blockSeed.get(key)) blockSeed.set(key, seed)
-    }
-
-    ids.sort((a, b) => {
-      const blockA = block.get(a)
-      const blockB = block.get(b)
-      if (blockA.key !== blockB.key) return blockSeed.get(blockA.key) - blockSeed.get(blockB.key)
-      if (blockA.within !== blockB.within) return blockA.within - blockB.within
-      return (order.get(a) ?? 0) - (order.get(b) ?? 0)
-    })
-    rows.set(generation, ids)
-  }
 
   const x = new Map()
   for (const ids of rows.values()) {
-    ids.forEach((id, index) => x.set(id, index * (CARD_W + CARD_GAP)))
+    let cursor = 0
+    ids.forEach((id, index) => {
+      if (index > 0) {
+        // A wider gap between families than between siblings: the eye should be able to
+        // see where one sibling set ends without following the rails to find out.
+        const sameFamily = birthGroupOf(id) === birthGroupOf(ids[index - 1])
+        cursor += CARD_W + (sameFamily ? CARD_GAP : FAMILY_GAP)
+      }
+      x.set(id, cursor)
+    })
   }
 
   // --- 3. relax -------------------------------------------------------------
@@ -261,7 +198,8 @@ export function layoutGraph(graph, centerId) {
       if (!ids.length) continue
       const before = midpoint(ids)
       for (let i = 1; i < ids.length; i += 1) {
-        const minimum = x.get(ids[i - 1]) + CARD_W + CARD_GAP
+        const gap = birthGroupOf(ids[i]) === birthGroupOf(ids[i - 1]) ? CARD_GAP : FAMILY_GAP
+        const minimum = x.get(ids[i - 1]) + CARD_W + gap
         if (x.get(ids[i]) < minimum) x.set(ids[i], minimum)
       }
       // Separation only ever pushes right, so without this the row creeps further right on
@@ -370,37 +308,94 @@ export function layoutGraph(graph, centerId) {
  * rails would collide.
  */
 export function assignUnionLanes(persons, unions) {
-  const rows = new Map()
-  for (const [unionId, union] of unions) {
-    const rowBottom = (union.generation ?? 0) * ROW_PITCH + CARD_H
-    if (!rows.has(rowBottom)) rows.set(rowBottom, [])
-    rows.get(rowBottom).push({ unionId, union })
+  const baseY = (union) => (union.generation ?? 0) * ROW_PITCH + CARD_H + UNION_DROP
+
+  // --- 1. corridors, decided once, from the unlaned base y ----------------------------
+  //
+  // A child more than one row down is reached by jogging sideways into a gap and dropping
+  // there. The decision uses the base y rather than the final laned one, so it does not
+  // depend on the lane it will later help determine.
+  for (const [, union] of unions) {
+    union.corridorByRow = new Map()
+    const rows = new Set()
+    for (const id of union.childIds ?? []) {
+      const child = persons.get(id)
+      if (child) rows.add(child.y)
+    }
+    for (const childRow of rows) {
+      if (childRow - baseY(union) <= ROW_PITCH) continue
+      const corridor = freeCorridor(persons, baseY(union), childRow, union.x)
+      if (corridor !== null && Math.abs(corridor - union.x) >= 0.5) {
+        union.corridorByRow.set(childRow, corridor)
+      }
+    }
   }
 
-  for (const [rowBottom, entries] of rows) {
-    const partnerSpans = []
-    const childSpans = []
+  // --- 2. partner rails, one lane per union within its own row ------------------------
+  //
+  // The jog runs along the union's own rail, so its reach is part of this span. That is the
+  // point: a jog drawn at some other y would be a rail nothing had coloured, which is
+  // exactly how one slipped onto another union's line.
+  const byUnionRow = new Map()
+  for (const [unionId, union] of unions) {
+    const rowBottom = (union.generation ?? 0) * ROW_PITCH + CARD_H
+    if (!byUnionRow.has(rowBottom)) byUnionRow.set(rowBottom, [])
+    byUnionRow.get(rowBottom).push({ unionId, union, rowBottom })
+  }
+  for (const [rowBottom, entries] of byUnionRow) {
+    const spans = []
     for (const { unionId, union } of entries) {
-      const partnerXs = (union.partnerIds ?? [])
-        .map((id) => persons.get(id)?.cx)
-        .filter((v) => v !== undefined)
-      if (partnerXs.length) {
-        partnerSpans.push({ unionId, x0: Math.min(union.x, ...partnerXs), x1: Math.max(union.x, ...partnerXs) })
-      }
-      const childXs = (union.childIds ?? [])
-        .map((id) => persons.get(id)?.cx)
-        .filter((v) => v !== undefined)
-      if (childXs.length) {
-        childSpans.push({ unionId, x0: Math.min(union.x, ...childXs), x1: Math.max(union.x, ...childXs) })
-      }
+      const xs = [
+        union.x,
+        ...(union.partnerIds ?? []).map((id) => persons.get(id)?.cx).filter((v) => v !== undefined),
+        ...union.corridorByRow.values(),
+      ]
+      spans.push({ unionId, x0: Math.min(...xs), x1: Math.max(...xs) })
     }
+    const offsets = laneOffsets(spans, (s) => s.unionId)
+    for (const { unionId, union } of entries) {
+      union.y = rowBottom + UNION_DROP + (offsets.get(unionId) ?? 0)
+    }
+  }
 
-    const partnerY = laneOffsets(partnerSpans)
-    const childY = laneOffsets(childSpans)
-    for (const { unionId, union } of entries) {
-      union.y = rowBottom + UNION_DROP + (partnerY.get(unionId) ?? 0)
-      union.busY = rowBottom + UNION_DROP + CHILD_BUS + (childY.get(unionId) ?? 0)
+  // --- 3. child buses, one lane per union within the row their children sit in ---------
+  //
+  // Grouped by that row **globally**, not by the union's own row: a union whose child
+  // married a generation up owns a bus two rows below itself, and it must be coloured
+  // against every other bus there, including ones from a different generation.
+  const byChildRow = new Map()
+  for (const [unionId, union] of unions) {
+    const rows = new Map()
+    for (const id of union.childIds ?? []) {
+      const child = persons.get(id)
+      if (!child) continue
+      if (!rows.has(child.y)) rows.set(child.y, [])
+      rows.get(child.y).push(child.cx)
     }
+    for (const [childRow, xs] of rows) {
+      // A corridor-routed drop starts its bus at the corridor, which keeps a marry-up's
+      // rail short instead of spanning the chart.
+      const from = union.corridorByRow.get(childRow) ?? union.x
+      if (!byChildRow.has(childRow)) byChildRow.set(childRow, [])
+      byChildRow.get(childRow).push({
+        unionId,
+        childRow,
+        x0: Math.min(from, ...xs),
+        x1: Math.max(from, ...xs),
+      })
+    }
+  }
+
+  for (const [, union] of unions) union.busYByRow = new Map()
+  for (const [childRow, spans] of byChildRow) {
+    const offsets = laneOffsets(spans, (s) => s.unionId)
+    for (const span of spans) {
+      const union = unions.get(span.unionId)
+      if (union) union.busYByRow.set(childRow, childRow - CHILD_BUS + (offsets.get(span.unionId) ?? 0))
+    }
+  }
+  for (const [, union] of unions) {
+    union.busY = [...union.busYByRow.values()][0] ?? baseY(union) + CHILD_BUS
   }
 }
 
@@ -408,12 +403,12 @@ export function assignUnionLanes(persons, unions) {
  * Interval-graph colouring: spans that come within `BUS_MIN_GAP` get different lanes.
  * Returns a signed offset per union, centred on zero and squeezed to stay inside the band.
  */
-function laneOffsets(spans) {
+function laneOffsets(spans, keyOf = (s) => s.unionId) {
   const offsets = new Map()
   if (!spans.length) return offsets
 
   const ordered = [...spans].sort(
-    (a, b) => a.x0 - b.x0 || a.x1 - b.x1 || String(a.unionId).localeCompare(String(b.unionId)),
+    (a, b) => a.x0 - b.x0 || a.x1 - b.x1 || String(keyOf(a)).localeCompare(String(keyOf(b))),
   )
   const lastEnd = []
   const lane = new Map()
@@ -421,17 +416,85 @@ function laneOffsets(spans) {
     let index = lastEnd.findIndex((end) => end + BUS_MIN_GAP <= span.x0)
     if (index === -1) index = lastEnd.length
     lastEnd[index] = span.x1
-    lane.set(span.unionId, index)
+    lane.set(keyOf(span), index)
   }
 
   const used = lastEnd.length
   // Never zero: two rails one pixel apart still read as two, one rail read as two families
   // does not. Squeezing is the lesser evil against ever sharing a y.
   const spacing = used > 1 ? Math.max(2, Math.min(BUS_LANE_GAP, (2 * BAND_HALF) / (used - 1))) : 0
-  for (const [unionId, index] of lane) {
-    offsets.set(unionId, (index - (used - 1) / 2) * spacing)
+  for (const [key, index] of lane) {
+    offsets.set(key, (index - (used - 1) / 2) * spacing)
   }
   return offsets
+}
+
+/**
+ * A vertical strip that crosses no card, for a drop that spans more than one row.
+ *
+ * A union whose child sits two rows down has to get past the row between them. Going
+ * straight down puts the wire through whoever happens to be standing there, which reads as
+ * that person being on the line between a parent and a child. So the drop jogs sideways
+ * into a gap and comes down there — simple orthogonal routing, no diagonals, no curves.
+ *
+ * Returns the free x nearest `preferredX`, or null when the rows are wall-to-wall (in which
+ * case the caller draws straight and the invariant reports it rather than the drawing
+ * quietly lying).
+ */
+function freeCorridor(persons, y0, y1, preferredX) {
+  const crossed = [...persons.values()].filter((p) => p.y > y0 - 1 && p.y + CARD_H < y1 + 1)
+  if (!crossed.length) return preferredX
+
+  const blocked = crossed
+    .map((p) => [p.x - CORRIDOR_MARGIN, p.x + CARD_W + CORRIDOR_MARGIN])
+    .sort((a, b) => a[0] - b[0])
+
+  // Merge overlapping blocked spans, then the gaps between them are the corridors.
+  const merged = [blocked[0]]
+  for (const span of blocked.slice(1)) {
+    const last = merged[merged.length - 1]
+    if (span[0] <= last[1]) last[1] = Math.max(last[1], span[1])
+    else merged.push([...span])
+  }
+
+  const candidates = [merged[0][0], merged[merged.length - 1][1]]
+  for (let i = 1; i < merged.length; i += 1) {
+    candidates.push((merged[i - 1][1] + merged[i][0]) / 2)
+  }
+  // Only gaps wide enough to be a corridor rather than a hairline.
+  const usable = candidates.filter((x) =>
+    merged.every(([lo, hi]) => x <= lo || x >= hi),
+  )
+  if (!usable.length) return null
+  return usable.reduce((best, x) => (Math.abs(x - preferredX) < Math.abs(best - preferredX) ? x : best))
+}
+
+/** The bus serving the row this child sits on. */
+function busYFor(union, child) {
+  const perRow = union.busYByRow
+  if (perRow && perRow.has(child.y)) return perRow.get(child.y)
+  return union.busY ?? union.y + CHILD_BUS
+}
+
+/**
+ * The orthogonal path from a union down to one child.
+ *
+ * The ordinary case is three segments: down out of the union, across the sibling bus, down
+ * into the card. When the child is more than one row below, two more are inserted — a short
+ * jog into a clear corridor and the long drop down it.
+ */
+function dropPath(union, child, busY) {
+  // Exactly the corridor chosen while laning, or none — never a fresh calculation, because
+  // laning and drawing disagreeing is how two coloured-apart rails ended up on one line.
+  const corridor = union.corridorByRow?.get(child.y)
+  if (corridor === undefined) {
+    return `M ${union.x} ${union.y} L ${union.x} ${busY} L ${child.cx} ${busY} L ${child.cx} ${child.y}`
+  }
+  // The jog runs along the union's own rail, whose lane already accounts for it.
+  return (
+    `M ${union.x} ${union.y} L ${corridor} ${union.y} ` +
+    `L ${corridor} ${busY} L ${child.cx} ${busY} L ${child.cx} ${child.y}`
+  )
 }
 
 export function buildEdges(persons, unions, childrenOf) {
@@ -451,10 +514,13 @@ export function buildEdges(persons, unions, childrenOf) {
     }
 
     if (!union.childIds?.length) continue
-    const busY = union.busY ?? union.y + CHILD_BUS
     for (const childId of union.childIds) {
       const child = persons.get(childId)
       if (!child) continue
+      // One bus per row the union has children on. Real records put a child on a different
+      // row from their siblings (someone who married a generation up), and a single rail
+      // reaching two rows would have to cross everything between them.
+      const busY = busYFor(union, child)
       edges.push({
         id: `c:${unionId}:${childId}`,
         kind: 'child',
@@ -463,8 +529,9 @@ export function buildEdges(persons, unions, childrenOf) {
         relationType:
           (childrenOf.get(unionId) ?? []).find((k) => k.person === childId)?.relation_type ??
           'biological',
-        // Union → sibling bus → down into the child's card.
-        d: `M ${union.x} ${union.y} L ${union.x} ${busY} L ${child.cx} ${busY} L ${child.cx} ${child.y}`,
+        // Union → sibling bus → down into the child's card. A drop spanning more than one
+        // row is routed round the row it would otherwise cut through.
+        d: dropPath(union, child, busY),
       })
     }
   }

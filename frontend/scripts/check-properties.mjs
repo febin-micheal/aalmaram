@@ -16,6 +16,8 @@
  */
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
 import { layoutGraph } from '../src/graph/layout.js'
 import { layoutOverview } from '../src/graph/layoutOverview.js'
@@ -136,7 +138,26 @@ function generateFamily(seed) {
 
     // People who married in from outside, so a row is not only siblings.
     for (let extra = 0; extra < between(0, 2); extra += 1) children.push(makePerson(generation + 1))
-    rowsOfPeople[generation + 1] = children
+
+    /**
+     * Marry-ups: a child recorded a generation away from their own siblings.
+     *
+     * This is not exotic. Someone who marries a person a generation older is placed by the
+     * server's structural depth, not by their birth order, so their union's children end up
+     * split across two rows — which means one sibling bus cannot serve them and a drop has
+     * to cross a whole row. The corridor routing exists for this, and the case was invisible
+     * to the generator until it produced one, so the first real archive found it instead.
+     */
+    if (children.length > 1 && random() < 0.3) {
+      const moved = children[pick(children.length)]
+      const person = persons.find((p) => p.id === moved)
+      if (person) person.generation = generation + 2
+    }
+
+    rowsOfPeople[generation + 1] = children.filter((id) => {
+      const person = persons.find((p) => p.id === id)
+      return person && person.generation === generation + 1
+    })
   }
 
   return { persons, unions, memberships }
@@ -288,6 +309,45 @@ const PINNED = {
       sibling_order: null,
     })),
   },
+}
+
+/**
+ * The owner's own archive, as pure structure.
+ *
+ * Ids are synthetic and there are no names, dates or places — only bands, genders and who
+ * belongs to which union. It is here because it is the shape that found two defects the
+ * generator could not produce: unions whose children span two rows, which is what marrying
+ * a generation up does to a real family.
+ */
+const realShape = JSON.parse(
+  readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures/real-archive-shape.json'), 'utf8'),
+)
+PINNED['real-archive'] = {
+  persons: realShape.persons.map((p) => ({
+    id: p.id,
+    name_en: p.id,
+    name_ml: '',
+    display_name: p.id,
+    house_name: 'H',
+    gender: 'unknown',
+    is_living: true,
+    birth_display: '',
+    death_display: '',
+    lifespan_compact: '',
+    place_origin: '',
+    generation: p.band,
+    hidden_up: 0,
+    hidden_down: 0,
+  })),
+  unions: realShape.unions.map((u) => ({
+    id: u.id,
+    union_type: 'marriage',
+    status: 'active',
+    year_display: '',
+    place: '',
+    generation: u.band,
+  })),
+  memberships: realShape.memberships.map((m) => ({ ...m, relation_type: 'biological' })),
 }
 
 for (const [name, graph] of Object.entries(PINNED)) {

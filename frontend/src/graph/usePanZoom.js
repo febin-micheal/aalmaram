@@ -4,6 +4,8 @@ import { MAX_SCALE, MIN_SCALE, fitTransform, zoomAbout } from './layoutOverview.
 
 /** Two fingers closer than this are treated as one — a stray thumb should not zoom. */
 const MIN_PINCH_DISTANCE = 24
+/** How long after a manual pan or zoom auto-fit keeps its hands off. */
+export const AUTO_FIT_QUIET_MS = 12000
 
 /**
  * Pan and zoom over a single SVG transform group.
@@ -25,6 +27,18 @@ export function usePanZoom(svgRef) {
   const lastTap = useRef(0)
   // Pointers this canvas has actually taken capture of. See onPointerMove.
   const captured = useRef(new Set())
+  /**
+   * When the user last moved the view themselves.
+   *
+   * The graph re-fits after every change so a growing family stays wholly visible, but a
+   * view someone has just positioned by hand is theirs. Auto-fit therefore stands down for
+   * a quiet period after any manual pan or zoom, and `fit()` — including the toolbar
+   * button — hands control back by clearing this.
+   */
+  const lastGesture = useRef(0)
+  const markGesture = () => {
+    lastGesture.current = Date.now()
+  }
 
   useEffect(() => {
     const svg = svgRef.current
@@ -46,7 +60,11 @@ export function usePanZoom(svgRef) {
       const { width, height } = svg.getBoundingClientRect()
       // The maths lives in layoutOverview.js so it can be checked at phone widths.
       const next = fitTransform(bounds, { width, height }, padding)
-      if (next) setTransform(next)
+      if (next) {
+        // Fitting is the user asking to see everything, so it ends "I am navigating".
+        lastGesture.current = 0
+        setTransform(next)
+      }
     },
     [svgRef],
   )
@@ -73,6 +91,7 @@ export function usePanZoom(svgRef) {
     (factor) => {
       const svg = svgRef.current
       if (!svg) return
+      markGesture()
       const { width, height } = svg.getBoundingClientRect()
       setTransform((t) => {
         const k = clamp(t.k * factor)
@@ -100,6 +119,7 @@ export function usePanZoom(svgRef) {
       // A trackpad pinch arrives as a wheel event with ctrlKey set, and needs a much
       // stronger response than a scroll wheel or it feels stuck.
       const factor = event.ctrlKey ? Math.pow(0.99, event.deltaY) : Math.pow(0.999, event.deltaY)
+      markGesture()
       setTransform((t) => zoomAbout(t, at, t.k * factor))
     }
 
@@ -216,6 +236,8 @@ export function usePanZoom(svgRef) {
     zoomBy,
     panBy,
     isDragging,
+    /** True while the view belongs to the user's hand rather than to auto-fit. */
+    isNavigating: (withinMs = AUTO_FIT_QUIET_MS) => Date.now() - lastGesture.current < withinMs,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerLeave: onPointerUp },
   }
 }

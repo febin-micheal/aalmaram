@@ -20,6 +20,10 @@
  * build shows them; production logs once and carries on.
  */
 
+/** Card box, duplicated rather than imported to keep this module free of layout deps. */
+const CARD_WIDTH = 178
+const CARD_HEIGHT = 64
+
 /** Horizontal runs must be this far apart in x before they count as separate. */
 const TOUCH_EPSILON = 0.5
 /** Two rails at y values closer than this read as one line on screen. */
@@ -35,24 +39,51 @@ const COLLINEAR_EPSILON = 1.5
 export function horizontalRuns(layout) {
   const runs = []
   for (const edge of layout.edges ?? []) {
-    const n = (edge.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
-    if (edge.kind === 'partner' && n.length >= 6) {
+    for (const [ax, ay, bx, by] of pathSegments(edge.d)) {
+      // Horizontal only, and only runs long enough to read as a rail.
+      if (Math.abs(ay - by) > 0.01 || Math.abs(ax - bx) < 0.01) continue
       runs.push({
-        kind: 'partner',
+        kind: edge.kind,
         unionId: edge.unionId,
         personId: edge.personId,
-        y: n[3],
-        x0: Math.min(n[2], n[4]),
-        x1: Math.max(n[2], n[4]),
+        y: ay,
+        x0: Math.min(ax, bx),
+        x1: Math.max(ax, bx),
       })
-    } else if (edge.kind === 'child' && n.length >= 8) {
+    }
+  }
+  return runs
+}
+
+/**
+ * Every segment of an orthogonal path, whatever its length.
+ *
+ * Written generically on purpose. The first version assumed the three-segment shape a
+ * simple drop has, so when corridor routing added a jog the extra rail was invisible to the
+ * check — and two rails collided in a way the judge could not see. A judge that only reads
+ * the shapes it expects is not a judge.
+ */
+function pathSegments(d) {
+  const numbers = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number)
+  const segments = []
+  for (let i = 0; i + 3 < numbers.length; i += 2) {
+    segments.push([numbers[i], numbers[i + 1], numbers[i + 2], numbers[i + 3]])
+  }
+  return segments
+}
+
+/** Every vertical run, so a connector that tunnels through a card can be caught. */
+export function verticalRuns(layout) {
+  const runs = []
+  for (const edge of layout.edges ?? []) {
+    for (const [ax, ay, bx, by] of pathSegments(edge.d)) {
+      if (Math.abs(ax - bx) > 0.01 || Math.abs(ay - by) < 0.01) continue
       runs.push({
-        kind: 'child',
         unionId: edge.unionId,
         personId: edge.personId,
-        y: n[3],
-        x0: Math.min(n[2], n[4]),
-        x1: Math.max(n[2], n[4]),
+        x: ax,
+        y0: Math.min(ay, by),
+        y1: Math.max(ay, by),
       })
     }
   }
@@ -121,10 +152,22 @@ export function checkRenderTruth(layout) {
   for (const [unionId, union] of layout.unions ?? []) {
     const kids = (union.childIds ?? []).map((id) => layout.persons.get(id)).filter(Boolean)
     if (kids.length < 2) continue
-    const lo = Math.min(...kids.map((k) => k.cx))
-    const hi = Math.max(...kids.map((k) => k.cx))
-    const row = kids[0].y
-    for (const person of layout.persons.values()) {
+
+    // Per row, not across rows. Real records put a child on a different row from their
+    // siblings — someone who married a generation up — and a span measured across both
+    // rows covers ground the union never draws on, which reads as an interleave that
+    // isn't there. Contiguity is a claim about one row at a time.
+    const byRow = new Map()
+    for (const kid of kids) {
+      if (!byRow.has(kid.y)) byRow.set(kid.y, [])
+      byRow.get(kid.y).push(kid.cx)
+    }
+
+    for (const [row, xs] of byRow) {
+      if (xs.length < 2) continue
+      const lo = Math.min(...xs)
+      const hi = Math.max(...xs)
+      for (const person of layout.persons.values()) {
       if (person.y !== row || union.childIds.includes(person.id)) continue
       if (person.cx <= lo || person.cx >= hi) continue
       // A married-in spouse between two siblings is allowed and has no drop-line
@@ -138,6 +181,30 @@ export function checkRenderTruth(layout) {
           unions: [unionId, theirs],
         })
       }
+      }
+    }
+  }
+
+  // (e) A connector may not tunnel through somebody's card.
+  //
+  // A union whose children sit two rows down drops a line past the row between them. If
+  // that line runs through a card, the picture puts a stranger on the wire between a parent
+  // and a child — the same false claim as a fused rail, drawn vertically.
+  const cards = [...(layout.persons?.values() ?? [])]
+  for (const run of verticalRuns(layout)) {
+    const union = layout.unions?.get(run.unionId)
+    const endpoints = new Set([...(union?.partnerIds ?? []), ...(union?.childIds ?? [])])
+    for (const card of cards) {
+      if (endpoints.has(card.id)) continue
+      const top = card.y
+      const bottom = card.y + CARD_HEIGHT
+      if (run.x <= card.x || run.x >= card.x + CARD_WIDTH) continue
+      if (run.y1 <= top || run.y0 >= bottom) continue
+      violations.push({
+        rule: 'connector-through-card',
+        message: `a connector of union ${run.unionId} passes through ${card.id}'s card`,
+        unions: [run.unionId],
+      })
     }
   }
 

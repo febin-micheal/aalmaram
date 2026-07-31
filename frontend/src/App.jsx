@@ -110,10 +110,27 @@ export default function App() {
   })
   const editingContext = useRef(null)
 
-  // After any layout change, put the anchor back where it was on screen.
+  /**
+   * Keep the whole graph visible — unless the view is currently the user's.
+   *
+   * A family grows sideways as it is entered, and the thing people asked for is not to have
+   * to hunt for what they just added. So every layout change re-fits. But a view someone
+   * has just panned or zoomed by hand belongs to them: `isNavigating()` is true for a quiet
+   * period after any manual gesture, and while it is, the anchor-preservation pan runs
+   * instead so the person being worked on stays put. Pressing Fit hands control back.
+   */
   useEffect(() => {
+    if (!layout) return
+    const navigating = controls.current.isNavigating?.() ?? false
+
+    if (!navigating) {
+      controls.current.fit?.()
+      anchorScreen.current = null
+      return
+    }
+
     const remembered = anchorScreen.current
-    if (!remembered || !layout) return
+    if (!remembered) return
     const person = layout.persons.get(remembered.id)
     if (!person || !controls.current.toScreenPoint) return
     const now = controls.current.toScreenPoint({ x: person.x, y: person.y })

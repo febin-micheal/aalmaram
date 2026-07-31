@@ -1230,3 +1230,85 @@ about buses; it is that **example-based checks cannot establish a universally-qu
 property**, and layout correctness is universally quantified over family shapes. Every
 future layout change is now answerable to the properties, and the person entering their
 family should never be the thing that notices.
+
+---
+
+## 30. Layered ordering (Sugiyama-style), corridor routing, and auto-fit
+
+**Context.** With the render-truth invariants in place (#29) the guard started firing on the
+owner's real archive: `interleaved-siblings ×3` on 25 people, later 38. The invariants were
+right and the placement strategy could not satisfy them — a greedy seed order plus
+relaxation has no way to keep every union's children contiguous once families interlock.
+
+### Algorithm
+
+A hand-rolled **Sugiyama-style layered layout**, in `graph/ordering.js`. Layers are
+generations, which the server already assigns, so there is no cycle-breaking or
+layer-assignment phase; the whole job is ordering within rows.
+
+The hard constraint is expressed structurally rather than checked afterwards: a union's
+children live in a **block**, and blocks are permuted whole and never split. Contiguity is
+therefore not something the ordering can lose. Married-in partners join their spouse's
+block, first marriage to the left and later ones to the right, which is what draws a
+remarriage as one person between two union nodes.
+
+Blocks are then ordered by the **barycenter heuristic** — median position of the people a
+block connects to in the neighbouring row — swept down and up to a cap, keeping the
+arrangement with fewest crossings. Median rather than mean, so one distant relative cannot
+drag a sibling group across the chart. Blocks with nothing to align to keep their place;
+sorting them to one end would reshuffle unrelated families every sweep and never converge.
+
+**Limits, stated plainly.** Barycenter ordering is a heuristic and minimising crossings
+exactly is NP-hard; this does not attempt it, and some crossings remain. Coordinate
+assignment is still iterative relaxation, so x positions are "good enough and stable", not
+optimal. Neither affects truth — the invariants are what guarantee that, and they are
+checked on the output rather than assumed from the algorithm.
+
+### Corridor routing
+
+Real records put a child on a different row from their siblings: marrying a generation up
+gets you placed by structural depth, not birth order. So a union can own children on two
+rows, which means one bus cannot serve them and a drop must cross a whole row. Buses are now
+per (union, child row), and a drop spanning more than one row **jogs sideways into a gap and
+comes down there**, chosen from the free intervals of the rows it crosses.
+
+Two corrections came out of getting this right, both found by the property suite:
+
+- Buses were laned per the *union's* row, but a bus lives in the *child's* row. Two unions
+  from different generations can own buses in the same row, and a per-union-row grouping
+  never compares them. Laning is now global per child row.
+- The jog was drawn at a y nothing had coloured, and landed on another union's bus. It now
+  runs **along the union's own rail**, whose lane already accounts for its reach.
+
+And a third, in the judge itself: `horizontalRuns` assumed the three-segment shape a simple
+drop has, so the jog was invisible to the very check meant to catch it. It now parses
+segments generically. *A judge that only reads the shapes it expects is not a judge* — the
+same lesson as #28, in a different place.
+
+### Auto-fit
+
+Every layout change re-fits the whole graph with padding, so a family growing sideways stays
+visible without hunting for what was just added. But a view someone positioned by hand is
+theirs: any manual pan, zoom or pinch marks the view as "the user's" for a quiet period, and
+while that holds, the previous anchor-preservation pan runs instead so the person being
+worked on stays put. Pressing **Fit** clears the mark and hands control back. The canvas is
+infinite and the layout takes the room it needs; the fit is what adapts.
+
+Detail view now always draws cards. Semantic-zoom dots are the far-out overview's way of
+showing a whole archive, and collapsing a neighbourhood you are reading is a different thing
+entirely.
+
+### Acceptance
+
+The invariants are the judge, not the author's confidence:
+
+- **10,000 generated families, zero violations** — 2-5 unions per row, remarriages,
+  single-parent unions, 0-6 children, marry-ups, and every intermediate state of building a
+  family up one person at a time.
+- **The owner's real archive renders clean**, and its structural skeleton is pinned into the
+  corpus (`scripts/fixtures/real-archive-shape.json` — synthetic ids, no names, dates,
+  places or genders) because it produced two cases the generator could not.
+- Determinism holds: same data, same layout, incremental identical to full.
+
+Reverting either laning mechanism makes the suite fail, and in both cases **the real archive
+is the first shape to fail** — which is the point of pinning it.

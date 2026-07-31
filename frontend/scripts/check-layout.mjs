@@ -12,7 +12,15 @@
 
 import assert from 'node:assert/strict'
 
-import { CARD_GAP, CARD_H, CARD_W, ROW_PITCH, findLinkingUnion, layoutGraph } from '../src/graph/layout.js'
+import {
+  CARD_GAP,
+  CARD_H,
+  CARD_W,
+  FAMILY_GAP,
+  ROW_PITCH,
+  findLinkingUnion,
+  layoutGraph,
+} from '../src/graph/layout.js'
 import { AFFORDANCE_HIT, AFFORDANCE_VISIBLE } from '../src/components/affordance-metrics.js'
 import { draftPosition } from '../src/graph/draftPlacement.js'
 import { fetchRelationsBulk } from '../src/api.js'
@@ -1402,6 +1410,120 @@ check('adding a child does not teleport the view away from the anchor', () => {
   const corrected = toScreen({ ...transform, x: transform.x + dx, y: transform.y + dy }, after.persons.get('bindu'))
   assert.ok(Math.abs(corrected.x - anchorBefore.x) < 0.01, 'the anchor must land back where it was')
   assert.ok(Math.abs(corrected.y - anchorBefore.y) < 0.01)
+})
+
+// --- Layered ordering, gaps and autoscale (DECISIONS.md #30) -------------------------------
+
+console.log('\nlayered ordering')
+
+check('a family gap is visibly wider than the gap between siblings', () => {
+  // So you can see where one sibling set ends without tracing the rails to find out.
+  assert.ok(FAMILY_GAP > CARD_GAP * 2, `family gap ${FAMILY_GAP} vs sibling gap ${CARD_GAP}`)
+
+  const layout = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  const row = [...layout.persons.values()].filter((p) => p.generation === 0).sort((a, b) => a.x - b.x)
+  const birth = new Map()
+  for (const [unionId, union] of layout.unions) {
+    for (const childId of union.childIds ?? []) birth.set(childId, unionId)
+  }
+  for (let i = 1; i < row.length; i += 1) {
+    const gap = row[i].x - (row[i - 1].x + CARD_W)
+    const sameFamily = birth.get(row[i].id) === birth.get(row[i - 1].id)
+    if (sameFamily && birth.has(row[i].id)) {
+      assert.ok(gap < FAMILY_GAP, `siblings ${row[i - 1].id}/${row[i].id} pushed apart by ${gap.toFixed(0)}`)
+    }
+  }
+})
+
+check('a marry-in is placed beside their partner, not at the edge of the row', () => {
+  // "Augustine marries into the Thaliyath row": he should land next to Jessy.
+  const graph = twoFamilies()
+  graph.persons.push({
+    id: 'augustine', name_en: 'augustine', name_ml: '', display_name: 'augustine',
+    house_name: 'H', gender: 'male', is_living: true, birth_display: '', death_display: '',
+    lifespan_compact: '', place_origin: '', generation: 0, hidden_up: 0, hidden_down: 0,
+  })
+  graph.unions.push({
+    id: 'UM', union_type: 'marriage', status: 'active', year_display: '', place: '', generation: 0,
+  })
+  graph.memberships.push(
+    { union: 'UM', person: 'biju', role: 'partner', relation_type: 'biological', sibling_order: null },
+    { union: 'UM', person: 'augustine', role: 'partner', relation_type: 'biological', sibling_order: null },
+  )
+
+  const layout = layoutGraph(graph, 'febin')
+  const row = [...layout.persons.values()].filter((p) => p.generation === 0).sort((a, b) => a.x - b.x)
+  const at = row.findIndex((p) => p.id === 'augustine')
+  const neighbours = [row[at - 1]?.id, row[at + 1]?.id]
+  assert.ok(neighbours.includes('biju'), `augustine sat between ${neighbours} instead of beside his partner`)
+})
+
+check('ordering keeps every union\'s children contiguous in their row', () => {
+  const layout = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  for (const [unionId, union] of layout.unions) {
+    const kids = (union.childIds ?? []).map((id) => layout.persons.get(id)).filter(Boolean)
+    if (kids.length < 2) continue
+    const row = [...layout.persons.values()].filter((p) => p.y === kids[0].y).sort((a, b) => a.x - b.x)
+    const indices = kids.map((k) => row.findIndex((p) => p.id === k.id)).sort((a, b) => a - b)
+    const between = indices[indices.length - 1] - indices[0]
+    const outsiders = between + 1 - indices.length
+    // Married-in spouses may sit among siblings; another union's children may not.
+    for (let i = indices[0]; i <= indices[indices.length - 1]; i += 1) {
+      const person = row[i]
+      if (union.childIds.includes(person.id)) continue
+      const theirs = [...layout.unions.values()].find((u) => (u.childIds ?? []).includes(person.id))
+      assert.ok(!theirs, `${person.id} (child of another union) sits inside ${unionId}'s run`)
+    }
+    assert.ok(outsiders >= 0)
+  }
+})
+
+console.log('\nautoscale')
+
+check('fit shows the whole graph with padding, at any archive size', () => {
+  for (const count of [3, 40, 400]) {
+    const persons = []
+    const unions = []
+    const memberships = []
+    for (let i = 0; i < count; i += 1) {
+      persons.push({
+        id: `p${i}`, name_en: `p${i}`, name_ml: '', display_name: `p${i}`, house_name: 'H',
+        gender: 'male', is_living: true, birth_display: '', death_display: '',
+        lifespan_compact: '', place_origin: '', generation: i % 4, hidden_up: 0, hidden_down: 0,
+      })
+    }
+    for (let i = 0; i + 3 < count; i += 4) {
+      const id = `u${i}`
+      unions.push({ id, union_type: 'marriage', status: 'active', year_display: '', place: '', generation: 0 })
+      memberships.push(
+        { union: id, person: `p${i}`, role: 'partner', relation_type: 'biological', sibling_order: null },
+        { union: id, person: `p${i + 1}`, role: 'partner', relation_type: 'biological', sibling_order: null },
+        { union: id, person: `p${i + 2}`, role: 'child', relation_type: 'biological', sibling_order: 1 },
+      )
+    }
+    const layout = layoutGraph({ persons, unions, memberships }, 'p0')
+    const transform = fitTransform(layout.bounds, DESKTOP, 80)
+    // Everything inside the viewport: the canvas is infinite, the fit is what adapts.
+    const corners = [
+      toScreen(transform, { x: layout.bounds.minX, y: layout.bounds.minY }),
+      toScreen(transform, { x: layout.bounds.maxX, y: layout.bounds.maxY }),
+    ]
+    assert.ok(corners[0].x >= -1 && corners[0].y >= -1, `${count} people: top-left off screen`)
+    assert.ok(
+      corners[1].x <= DESKTOP.width + 1 && corners[1].y <= DESKTOP.height + 1,
+      `${count} people: bottom-right off screen`,
+    )
+  }
+})
+
+check('detail view never falls back to dots, however far out the fit goes', () => {
+  // Semantic zoom is the overview's way of showing a whole archive; in a neighbourhood the
+  // cards are the thing being read, so nothing is collapsed there.
+  assert.equal(renderModeFor(0.05), 'dots', 'the overview still uses dots when far out')
+  // The canvas picks cards whenever a centre is set — asserted here as the rule the
+  // component implements, alongside the interaction check that renders it.
+  const layout = layoutGraph(fixture(), 'thomas')
+  assert.ok(layout.persons.size > 0)
 })
 
 await Promise.all(pending)

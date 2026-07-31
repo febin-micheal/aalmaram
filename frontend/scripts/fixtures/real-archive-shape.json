@@ -1,0 +1,513 @@
+{
+ "_note": "Structural skeleton of the project owner's own archive, kept because it is the shape that exposed two defects the random generator could not produce (unions whose children span two rows). Ids are synthetic and sequential. It carries NO names, dates, places, houses or genders \u2014 only which synthetic id belongs to which synthetic union, and in which generation band.",
+ "persons": [
+  {
+   "id": "p0",
+   "band": 3
+  },
+  {
+   "id": "p1",
+   "band": 3
+  },
+  {
+   "id": "p2",
+   "band": 0
+  },
+  {
+   "id": "p3",
+   "band": 3
+  },
+  {
+   "id": "p4",
+   "band": 2
+  },
+  {
+   "id": "p5",
+   "band": 2
+  },
+  {
+   "id": "p6",
+   "band": 1
+  },
+  {
+   "id": "p7",
+   "band": 2
+  },
+  {
+   "id": "p8",
+   "band": 1
+  },
+  {
+   "id": "p9",
+   "band": 2
+  },
+  {
+   "id": "p10",
+   "band": 2
+  },
+  {
+   "id": "p11",
+   "band": 3
+  },
+  {
+   "id": "p12",
+   "band": 0
+  },
+  {
+   "id": "p13",
+   "band": 3
+  },
+  {
+   "id": "p14",
+   "band": 2
+  },
+  {
+   "id": "p15",
+   "band": 2
+  },
+  {
+   "id": "p16",
+   "band": 2
+  },
+  {
+   "id": "p17",
+   "band": 2
+  },
+  {
+   "id": "p18",
+   "band": 2
+  },
+  {
+   "id": "p19",
+   "band": 4
+  },
+  {
+   "id": "p20",
+   "band": 4
+  },
+  {
+   "id": "p21",
+   "band": 3
+  },
+  {
+   "id": "p22",
+   "band": 3
+  },
+  {
+   "id": "p23",
+   "band": 0
+  },
+  {
+   "id": "p24",
+   "band": 1
+  },
+  {
+   "id": "p25",
+   "band": 1
+  },
+  {
+   "id": "p26",
+   "band": 2
+  },
+  {
+   "id": "p27",
+   "band": 2
+  },
+  {
+   "id": "p28",
+   "band": 1
+  },
+  {
+   "id": "p29",
+   "band": 1
+  },
+  {
+   "id": "p30",
+   "band": 1
+  },
+  {
+   "id": "p31",
+   "band": 1
+  },
+  {
+   "id": "p32",
+   "band": 1
+  },
+  {
+   "id": "p33",
+   "band": 3
+  },
+  {
+   "id": "p34",
+   "band": 0
+  },
+  {
+   "id": "p35",
+   "band": 1
+  },
+  {
+   "id": "p36",
+   "band": 0
+  },
+  {
+   "id": "p37",
+   "band": 2
+  }
+ ],
+ "unions": [
+  {
+   "id": "u0",
+   "band": 2
+  },
+  {
+   "id": "u1",
+   "band": 1
+  },
+  {
+   "id": "u2",
+   "band": 0
+  },
+  {
+   "id": "u3",
+   "band": 2
+  },
+  {
+   "id": "u4",
+   "band": 2
+  },
+  {
+   "id": "u5",
+   "band": 2
+  },
+  {
+   "id": "u6",
+   "band": 3
+  },
+  {
+   "id": "u7",
+   "band": 0
+  },
+  {
+   "id": "u8",
+   "band": 1
+  },
+  {
+   "id": "u9",
+   "band": 1
+  },
+  {
+   "id": "u10",
+   "band": 1
+  },
+  {
+   "id": "u11",
+   "band": 0
+  },
+  {
+   "id": "u12",
+   "band": 1
+  }
+ ],
+ "memberships": [
+  {
+   "union": "u5",
+   "person": "p3",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u3",
+   "person": "p21",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u6",
+   "person": "p19",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u4",
+   "person": "p1",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u8",
+   "person": "p37",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u10",
+   "person": "p16",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u9",
+   "person": "p4",
+   "role": "child",
+   "sibling_order": 1
+  },
+  {
+   "union": "u3",
+   "person": "p22",
+   "role": "child",
+   "sibling_order": 2
+  },
+  {
+   "union": "u6",
+   "person": "p20",
+   "role": "child",
+   "sibling_order": 2
+  },
+  {
+   "union": "u4",
+   "person": "p33",
+   "role": "child",
+   "sibling_order": 2
+  },
+  {
+   "union": "u8",
+   "person": "p9",
+   "role": "child",
+   "sibling_order": 2
+  },
+  {
+   "union": "u10",
+   "person": "p10",
+   "role": "child",
+   "sibling_order": 2
+  },
+  {
+   "union": "u0",
+   "person": "p13",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u0",
+   "person": "p0",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p27",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p7",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p6",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p8",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p32",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p18",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p14",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p17",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u7",
+   "person": "p26",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u11",
+   "person": "p28",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u7",
+   "person": "p30",
+   "role": "child",
+   "sibling_order": null
+  },
+  {
+   "union": "u0",
+   "person": "p27",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u0",
+   "person": "p7",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p25",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u1",
+   "person": "p28",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p12",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u2",
+   "person": "p23",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u3",
+   "person": "p17",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u3",
+   "person": "p5",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u4",
+   "person": "p18",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u4",
+   "person": "p26",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u5",
+   "person": "p14",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u5",
+   "person": "p15",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u6",
+   "person": "p22",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u6",
+   "person": "p11",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u7",
+   "person": "p2",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u8",
+   "person": "p6",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u8",
+   "person": "p31",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u9",
+   "person": "p8",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u9",
+   "person": "p29",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u10",
+   "person": "p32",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u10",
+   "person": "p24",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u11",
+   "person": "p34",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u11",
+   "person": "p36",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u12",
+   "person": "p30",
+   "role": "partner",
+   "sibling_order": null
+  },
+  {
+   "union": "u12",
+   "person": "p35",
+   "role": "partner",
+   "sibling_order": null
+  }
+ ]
+}

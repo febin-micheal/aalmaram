@@ -50,9 +50,12 @@ export default function GraphCanvas({
   const svgRef = useRef(null)
   const layoutRef = useRef(layout)
   layoutRef.current = layout
-  const { transform, viewport, fit, centerOn, zoomBy, panBy, isDragging, handlers } =
+  const { transform, viewport, fit, centerOn, zoomBy, panBy, isDragging, isNavigating, handlers } =
     usePanZoom(svgRef)
-  const mode = renderModeFor(transform.k)
+  // Dots are the far-out overview's way of showing a whole archive. In detail view the
+  // neighbourhood is the thing you are reading, so it always draws as cards however far
+  // out the fit had to go — nothing is collapsed or hidden there.
+  const mode = centerId ? 'cards' : renderModeFor(transform.k)
   const bigPicture = mode === 'dots'
 
   useEffect(() => {
@@ -77,10 +80,11 @@ export default function GraphCanvas({
       zoomBy,
       centerOn,
       panBy,
+      isNavigating,
       transform,
       toScreenPoint: (point) => toScreen(transform, point),
     })
-  }, [registerControls, fit, zoomBy, centerOn, panBy, transform, layout])
+  }, [registerControls, fit, zoomBy, centerOn, panBy, isNavigating, transform, layout])
 
   const houseClusters = useMemo(
     () => (bigPicture && layout ? clusterByHouse(layout) : []),
