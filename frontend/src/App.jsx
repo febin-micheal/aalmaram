@@ -134,15 +134,25 @@ export default function App() {
     editor.begin('standalone', null)
   }, [editor])
 
+  /**
+   * Open an input for a new relative of `person`.
+   *
+   * Works in both views. This used to refuse in the overview on the grounds that "editing
+   * happens in the detail view", which was true when the overview was a read-only
+   * big picture — but a small archive never leaves the overview, so that rule made the
+   * add-buttons dead exactly when the graph was small enough to need them most. The
+   * overview reloads from the server after a commit rather than merging optimistically;
+   * the new card arrives a beat later, which is the honest cost of laying out every
+   * component at once.
+   */
   const startAdd = useCallback(
     (context, person) => {
-      if (mode === 'overview') return // editing happens in the detail view
       editingContext.current = { context, anchorId: person.id }
       rememberAnchor(person.id)
       editor.begin(context, layoutRef.current?.persons.get(person.id) ?? person)
       setActiveId(person.id)
     },
-    [editor, mode, rememberAnchor],
+    [editor, rememberAnchor],
   )
 
   const commitDraft = useCallback(
@@ -472,7 +482,7 @@ export default function App() {
           editor={editor}
           activeId={activeId}
           onActivate={setActiveId}
-          onAddRelative={mode === 'detail' && !relate.active ? startAdd : undefined}
+          onAddRelative={relate.active ? undefined : startAdd}
           onChooseUnion={chooseUnion}
           onEditYear={(person) => setYearEditFor(person)}
           focusId={focus.activeId}

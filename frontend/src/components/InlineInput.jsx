@@ -56,6 +56,9 @@ export default function InlineInput({ screenX, screenY, busy, hint, focusKey, on
       <div className="flex items-center gap-1 rounded-lg border-2 border-[var(--accent-strong)] bg-[var(--card-bg)] p-1 shadow-xl">
         <input
           ref={input}
+          // Stable hook for the interaction checks: "the input opened" is the claim they
+          // make, and the toolbar search box is also an <input>.
+          data-inline-input=""
           value={value}
           disabled={busy}
           placeholder={t('edit.namePlaceholder')}

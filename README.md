@@ -308,7 +308,7 @@ of size. Laying it out takes ~21 ms, and at card zoom the canvas draws 18 cards,
 ```bash
 make test          # backend suite
 make test-cov      # with coverage
-make check-frontend # frontend build + headless layout checks
+make check-frontend # frontend build + headless layout and interaction checks
 ```
 
 The graph library is tested against fixture families that deliberately include a

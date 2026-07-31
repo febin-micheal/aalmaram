@@ -48,7 +48,7 @@ test:  ## Run the test suite
 test-cov:  ## Run the test suite with coverage on the graph library
 	$(COMPOSE) run --rm backend pytest --cov=apps --cov-report=term-missing
 
-check-frontend:  ## Build the explorer and run the headless layout checks
+check-frontend:  ## Build the explorer and run the headless layout + interaction checks
 	$(COMPOSE) run --rm --no-deps frontend sh -c "npm run build && npm run check"
 
 seed:  ## Load the fictional demo dataset (200+ persons, 5 generations)

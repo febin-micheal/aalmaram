@@ -236,7 +236,13 @@ export default function GraphCanvas({
                 hasParents={layout ? hasParents(layout, person.id) : false}
                 onSelect={() => !isDragging() && onSelect(person)}
                 onActivate={() => !isDragging() && onActivate?.(person.id)}
-                onAddRelative={(context) => onAddRelative?.(context, person)}
+                // Passed through as undefined when there is no handler, never wrapped in an
+                // arrow that is truthy regardless. PersonCard draws the buttons if and only
+                // if this is set, so "the affordance renders but does nothing" cannot be a
+                // state the app can reach.
+                onAddRelative={
+                  onAddRelative ? (context) => onAddRelative(context, person) : undefined
+                }
                 onEditYear={() => onEditYear?.(person)}
                 isFocus={focusId === person.id}
                 relationLabel={labelFor?.(person.id) ?? null}
@@ -302,6 +308,7 @@ function PersonCard({
       transform={`translate(${person.x} ${person.y})`}
       opacity={isDimmed ? 0.3 : 1}
       className="cursor-pointer group"
+      data-person-id={person.id}
       onClick={(event) => {
         event.stopPropagation()
         // One tap reveals the add-buttons and selects; the affordances handle their own

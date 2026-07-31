@@ -24,6 +24,7 @@ export default function Affordances({ person, hasParents, onAdd, t }) {
         x={CARD_W + 6}
         y={CARD_H / 2 - AFFORDANCE_HIT / 2}
         label="+"
+        context="partner_of"
         title={t('edit.addPartner')}
         onActivate={() => onAdd('partner_of')}
       />
@@ -31,6 +32,7 @@ export default function Affordances({ person, hasParents, onAdd, t }) {
         x={midX - AFFORDANCE_HIT / 2}
         y={CARD_H + 6}
         label="+"
+        context="child_of_person"
         title={t('edit.addChild')}
         onActivate={() => onAdd('child_of_person')}
       />
@@ -42,6 +44,7 @@ export default function Affordances({ person, hasParents, onAdd, t }) {
           x={midX - AFFORDANCE_HIT / 2}
           y={-AFFORDANCE_HIT - 6}
           label="+"
+          context="parent_of"
           title={t('edit.addParents')}
           onActivate={() => onAdd('parent_of')}
         />
@@ -50,12 +53,15 @@ export default function Affordances({ person, hasParents, onAdd, t }) {
   )
 }
 
-function Affordance({ x, y, label, title, onActivate }) {
+function Affordance({ x, y, label, title, context, onActivate }) {
   const centre = AFFORDANCE_HIT / 2
   return (
     <g
       transform={`translate(${x} ${y})`}
       className="cursor-pointer"
+      // The headless interaction check finds the buttons by this and clicks them, so a
+      // rename here without one there fails loudly rather than silently skipping.
+      data-affordance={context}
       onPointerDown={(event) => {
         // Stop the canvas from treating this as the start of a pan.
         event.stopPropagation()

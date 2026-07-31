@@ -893,3 +893,71 @@ inside `try/catch`, so an async body's rejection was swallowed and printed ✓. 
 fetch-stubbing check is necessarily async, so the runner now collects promises and settles
 them before the summary. Verified by breaking an async assertion deliberately: exit code 1
 and a ✗ line, where before it would have passed silently.
+
+---
+
+## 25. Editing works in the overview; a handler that does not exist must not draw a button
+
+**Context.** On a real archive of nine people the green `+` circles rendered on every card
+and did nothing — no input, no request, no console error. The canvas otherwise worked:
+pan, zoom, cards, relationship labels.
+
+**Cause — two independent faults that had to coincide.**
+
+1. `App` passed `onAddRelative={mode === 'detail' && !relate.active ? startAdd : undefined}`,
+   and `startAdd` *also* began `if (mode === 'overview') return`. Both said "editing happens
+   in the detail view".
+2. `GraphCanvas` handed the prop down as
+   `onAddRelative={(context) => onAddRelative?.(context, person)}` — an arrow function,
+   therefore **always truthy**. `PersonCard` draws the buttons when that prop is set, so it
+   drew them even when the thing they call was `undefined`. The optional chaining then
+   swallowed the click in perfect silence.
+
+Fault 2 is the one that mattered: without it, fault 1 would have been invisible (no
+buttons), which is a legible state. Together they produced a button that looks live and is
+not — the worst outcome available.
+
+**Decision — editing works in the overview.** The `detail`-only rule was written when the
+overview was a read-only big picture. Phase 1.75 made the canvas the primary editor, and a
+small archive *never leaves the overview* — so the rule disabled the add-buttons precisely
+when the graph was small enough to need them. It was also already inconsistent: the empty
+archive's "add the first person" flow creates on the overview canvas, so the overview could
+create a first person but not a second.
+
+The overview reloads from the server after a commit rather than merging optimistically. The
+new card therefore arrives a beat later than it does in the detail view. That is the honest
+cost of laying out every component at once, and it is preferable to a second merge path
+that could disagree with the server.
+
+**Decision — a component may not manufacture a handler.** `GraphCanvas` now passes
+`undefined` through when it has nothing to call. The affordance draws **if and only if**
+there is something behind it, so "renders but dead" is not a reachable state rather than a
+state we happen not to be in. The general rule: never wrap a possibly-absent callback in an
+arrow that is unconditionally truthy, because it converts a missing handler from a visible
+absence into a silent no-op.
+
+**Tests — a new file, because the existing ones structurally could not catch this.**
+`check-layout.mjs` verifies the layout as data in and data out; every assertion in it would
+have passed with every button dead. So `scripts/check-interaction.mjs` renders the real
+components into jsdom and dispatches real pointer events. It is deliberately narrow: it
+asks only "does a click reach what it is supposed to reach". Ten checks, including the
+literal repro — three people, the overview, click `+ parents`, **assert an input element
+exists**.
+
+Both faults were confirmed catchable by reintroducing them one at a time: restoring the
+truthy wrapper fails with *"affordances rendered with no handler to call"*, and restoring
+the early return fails with *"clicking + parents in the overview opened nothing"*.
+
+`jsdom` is the one new devDependency; JSX is bundled for Node with the esbuild that already
+ships inside Vite. `npm run check` now runs layout then interaction.
+
+**On the "extra" + circles in the screenshot — not misplaced.** Measured against the real
+layout: the `+` above a top-generation card is that person's *add-parents* button, correct
+and expected, since nobody in the top row has recorded parents. The `+` that appears to sit
+on the union dot is the *add-child* button, which genuinely shares a horizontal line with
+the dot (both a little below the card row). Nothing is drawn in the wrong place, but the
+proximity is real, so it is now pinned: no rendered affordance may come within the union
+dot's own hit radius. The near-miss that check protects — a child's add-parents button
+landing 42px from the union it already hangs from — never renders, because that button is
+suppressed for anyone who already has parents. If that rule ever goes, the geometry check
+is what starts failing.
