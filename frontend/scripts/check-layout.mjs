@@ -1205,5 +1205,204 @@ check('every chained seat gets its own focus key', () => {
   assert.equal(oldKey(a), oldKey(b), 'the composite key can collide — hence the counter')
 })
 
+// --- Two families, one row (DECISIONS.md #26) ----------------------------------------------
+//
+// The live shape that produced a false kinship claim: union A (two partners, children Biju
+// and Bindu) and an unrelated union B (child Pecsy) in the same generation, joined only one
+// generation below by Bindu x Pecsy. Adding a third child to union A put it beyond family B
+// and merged both sibling buses into one unbroken rail.
+
+function twoFamilies({ withNewChild = false } = {}) {
+  const person = (id, generation, extra = {}) => ({
+    id,
+    name_en: id,
+    name_ml: '',
+    display_name: id,
+    house_name: 'H',
+    gender: 'male',
+    is_living: true,
+    birth_display: '',
+    death_display: '',
+    lifespan_compact: '',
+    place_origin: '',
+    generation,
+    hidden_up: 0,
+    hidden_down: 0,
+    ...extra,
+  })
+  const union = (id, generation) => ({
+    id,
+    union_type: 'marriage',
+    status: 'active',
+    year_display: '',
+    place: '',
+    generation,
+  })
+  const member = (u, p, role, order = null) => ({
+    union: u,
+    person: p,
+    role,
+    relation_type: 'biological',
+    sibling_order: order,
+  })
+
+  const persons = [
+    person('a1', -1), person('a2', -1, { gender: 'female' }),
+    person('b1', -1), person('b2', -1, { gender: 'female' }),
+    person('biju', 0), person('bindu', 0, { gender: 'female' }),
+    person('pecsy', 0), person('abin', 1), person('febin', 1),
+  ]
+  const memberships = [
+    member('UA', 'a1', 'partner'), member('UA', 'a2', 'partner'),
+    member('UA', 'biju', 'child', 1), member('UA', 'bindu', 'child', 2),
+    member('UB', 'b1', 'partner'), member('UB', 'b2', 'partner'),
+    member('UB', 'pecsy', 'child', 1),
+    member('UC', 'pecsy', 'partner'), member('UC', 'bindu', 'partner'),
+    member('UC', 'abin', 'child', 1), member('UC', 'febin', 'child', 2),
+  ]
+  if (withNewChild) {
+    persons.push(person('binu', 0))
+    memberships.push(member('UA', 'binu', 'child'))
+  }
+  return { persons, unions: [union('UA', -1), union('UB', -1), union('UC', 0)], memberships }
+}
+
+/** Every child edge's horizontal run, read back out of the rendered path. */
+function busSegments(layout) {
+  const byUnion = new Map()
+  for (const edge of layout.edges) {
+    if (edge.kind !== 'child') continue
+    const n = edge.d.match(/-?\d+(?:\.\d+)?/g).map(Number)
+    // M ux uy L ux busY L cx busY L cx cy
+    const [, , unionX, busY, childX] = n
+    const current = byUnion.get(edge.unionId) ?? { unionId: edge.unionId, y: busY, x0: Infinity, x1: -Infinity }
+    current.x0 = Math.min(current.x0, unionX, childX)
+    current.x1 = Math.max(current.x1, unionX, childX)
+    byUnion.set(edge.unionId, current)
+  }
+  return [...byUnion.values()]
+}
+
+console.log('\ntwo families in one row')
+
+check('exactly one bus segment per union, spanning only its own children', () => {
+  const layout = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  const segments = busSegments(layout).filter((s) => s.unionId === 'UA' || s.unionId === 'UB')
+  assert.equal(segments.length, 2, 'the parents row should produce exactly two buses')
+
+  for (const segment of segments) {
+    const union = layout.unions.get(segment.unionId)
+    const kidXs = union.childIds.map((id) => layout.persons.get(id).cx)
+    // The run may extend to the union's own drop-line, but never past a child it does
+    // not have.
+    const outsiders = [...layout.persons.values()].filter(
+      (p) => p.generation === 0 && !union.childIds.includes(p.id) && p.cx > Math.min(...kidXs) && p.cx < Math.max(...kidXs),
+    )
+    assert.deepEqual(
+      outsiders.map((o) => o.id),
+      [],
+      `${segment.unionId}'s bus spans ${outsiders.map((o) => o.id)}, who are not its children`,
+    )
+  }
+})
+
+check('two unions never share a bus line where their spans meet', () => {
+  const layout = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  const segments = busSegments(layout)
+  for (let i = 0; i < segments.length; i += 1) {
+    for (let j = i + 1; j < segments.length; j += 1) {
+      const a = segments[i]
+      const b = segments[j]
+      const overlaps = a.x0 <= b.x1 && b.x0 <= a.x1
+      if (!overlaps) continue
+      assert.notEqual(
+        a.y,
+        b.y,
+        `${a.unionId} and ${b.unionId} overlap in x and share bus y ${a.y} — one continuous rail`,
+      )
+    }
+  }
+})
+
+check('canvas-wide: no two unions ever draw a collinear touching bus', () => {
+  // The same rule over every fixture this file has, not just the repro shape.
+  for (const [name, graph, centre] of [
+    ['two families', twoFamilies({ withNewChild: true }), 'febin'],
+    ['two families, before the add', twoFamilies(), 'febin'],
+    ['the remarriage fixture', fixture(), 'thomas'],
+  ]) {
+    const layout = layoutGraph(graph, centre)
+    const segments = busSegments(layout)
+    for (let i = 0; i < segments.length; i += 1) {
+      for (let j = i + 1; j < segments.length; j += 1) {
+        const a = segments[i]
+        const b = segments[j]
+        if (a.x0 > b.x1 || b.x0 > a.x1) continue // disjoint in x, cannot join
+        assert.notEqual(a.y, b.y, `${name}: ${a.unionId} and ${b.unionId} fuse into one bus`)
+      }
+    }
+  }
+})
+
+check('a new child lands among its siblings, not beyond an unrelated family', () => {
+  const layout = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  const binu = layout.persons.get('binu')
+  const siblings = ['biju', 'bindu'].map((id) => layout.persons.get(id))
+  const pecsy = layout.persons.get('pecsy')
+
+  const near = Math.min(...siblings.map((s) => s.x))
+  const far = Math.max(...siblings.map((s) => s.x))
+  // Adjacent to the sibling group: inside it, or immediately beside it — never with an
+  // unrelated family in between.
+  const between = [pecsy].filter((p) => p.x > Math.min(near, binu.x) && p.x < Math.max(far, binu.x))
+  assert.deepEqual(
+    between.map((p) => p.id),
+    [],
+    'an unrelated person sits between the new child and its siblings',
+  )
+})
+
+check('the layout does not depend on the order rows arrive in', () => {
+  // The incremental merge appends a new person to the end of the list; a reload gets them
+  // in the server's order. If layout depended on that order the two would disagree, and
+  // the graph would rearrange itself on refresh.
+  const full = twoFamilies({ withNewChild: true })
+  const shuffled = {
+    persons: [...full.persons].reverse(),
+    unions: [...full.unions].reverse(),
+    memberships: [...full.memberships].reverse(),
+  }
+  const a = layoutGraph(full, 'febin')
+  const b = layoutGraph(shuffled, 'febin')
+
+  for (const [id, person] of a.persons) {
+    const other = b.persons.get(id)
+    assert.ok(other, `${id} missing from the reordered layout`)
+    assert.equal(other.x, person.x, `${id} moved when the input order changed`)
+    assert.equal(other.y, person.y, `${id} changed row when the input order changed`)
+  }
+  for (const [id, union] of a.unions) {
+    assert.equal(b.unions.get(id).x, union.x, `union ${id} moved`)
+  }
+})
+
+check('adding a child does not teleport the view away from the anchor', () => {
+  // App remembers where the anchor sat on screen, then pans by the difference so the person
+  // you are working on stays under the cursor. This is that arithmetic.
+  const before = layoutGraph(twoFamilies(), 'febin')
+  const after = layoutGraph(twoFamilies({ withNewChild: true }), 'febin')
+  const transform = { x: 40, y: 60, k: 1 }
+  const anchorBefore = toScreen(transform, before.persons.get('bindu'))
+  const anchorAfter = toScreen(transform, after.persons.get('bindu'))
+
+  const dx = anchorBefore.x - anchorAfter.x
+  const dy = anchorBefore.y - anchorAfter.y
+  assert.ok(Number.isFinite(dx) && Number.isFinite(dy), 'the compensation must be computable')
+
+  const corrected = toScreen({ ...transform, x: transform.x + dx, y: transform.y + dy }, after.persons.get('bindu'))
+  assert.ok(Math.abs(corrected.x - anchorBefore.x) < 0.01, 'the anchor must land back where it was')
+  assert.ok(Math.abs(corrected.y - anchorBefore.y) < 0.01)
+})
+
 await Promise.all(pending)
 console.log(`\n${passed} check(s) passed`)

@@ -961,3 +961,74 @@ dot's own hit radius. The near-miss that check protects — a child's add-parent
 landing 42px from the union it already hangs from — never renders, because that button is
 suppressed for anyone who already has parents. If that rule ever goes, the geometry check
 is what starts failing.
+
+---
+
+## 26. A bus belongs to one union; the render may never assert a kinship the data does not hold
+
+**Context.** On a real ten-person archive: union A (two partners, children Biju and Bindu)
+and an unrelated union B (child Pecsy), same generation, joined only one generation *below*
+by Bindu × Pecsy. Adding a third child to union A produced two visible faults — the new
+child landed beyond the unrelated family, and both unions' sibling buses drew as one
+unbroken horizontal rail, so every child in the row appeared to belong to both sets of
+parents. The data was correct throughout; this was purely render.
+
+**The rule this establishes.** The render's one job is to never assert a relationship that
+is not in the data. A bus, a connector or any continuous stroke that visually links two
+unions is a **P0 class of bug** — worse than a crash, because a crash is obvious and a
+false ancestry is quietly copied into someone's family history.
+
+### Fault 1 — buses were positioned by generation, not by union
+
+`busY = union.y + CHILD_BUS`, and `union.y` depends only on the generation. Two unions in
+one row therefore drew their buses at *the same y*; wherever their spans overlapped, two
+separate paths landed on one line and fused.
+
+Fixed with lane assignment in `assignBusLanes()`: unions whose spans come within
+`BUS_MIN_GAP` are placed on different lanes, spread around `CHILD_BUS` and squeezed to fit
+the band between the union row and the child row. A single unconflicted bus — the common
+case — still draws exactly where it always did. Lanes are computed inside `buildEdges`
+rather than during placement, because the overview shifts whole families sideways *after*
+layout, which changes the spans and so can change which buses collide.
+
+### Fault 2 — sibling groups could interleave, and nothing downstream could recover
+
+Three separate causes, all of which had to be fixed:
+
+1. **The seed walk interleaves.** It is depth-first, so from a child it wanders into that
+   child's marriage and numbers a same-generation in-law before returning for the next
+   sibling. Rows are now ordered by *block*, not by person: a block is a birth group, and
+   two birth groups never interleave.
+2. **Relaxation silently undid it.** `separateRows` re-derived the order from the current x
+   on every pass, so a relaxed node could drift past its neighbour and swap — despite the
+   comment claiming it preserved row order. It now walks the row in its established order,
+   which makes the final order exactly the seeded one. It also re-centres each row
+   afterwards: separation only pushes right, so without that the layout crept rightward on
+   every pass and inflated (the fixture's width went from ~900px to 1676px before this was
+   added, which collapsed the phone-fit check — a useful accident).
+3. **A couple must not be split.** Ordering strictly by birth group separated spouses. A
+   married-in partner now joins their spouse's block, and someone with two marriages sits
+   *between* their two spouses, which is what makes a remarriage legible. The rule is
+   therefore "two birth groups never interleave", not "nothing may sit among siblings" — a
+   spouse between two siblings is fine, since no drop-line goes to them.
+
+### Fault 3, found by the determinism check rather than by eye
+
+Asked to pin incremental-vs-full layout, the check failed immediately: the layout depended
+on the **order the graph arrived in**. Adjacency lists were built by appending memberships,
+so an incremental add (new person appended last) and a reload (server's order) produced
+genuinely different pictures — the graph rearranged itself on refresh. Every adjacency list
+is now sorted on stable keys, making the layout a function of the graph alone. This was not
+in the report; it is the same bug one refresh later.
+
+**Verified against the live archive, not only fixtures.** The real overview payload and all
+ten detail neighbourhoods were laid out with the code at HEAD and with the fix: **4 fused
+rails → 0**, and **4 foreign-sibling intrusions → 0**. (Measured structurally; no names left
+the machine and nothing was written into the repo.)
+
+**Tests.** Six checks on the exact repro shape: one bus per union spanning only its own
+children; no two unions sharing a bus line where their spans meet; the same rule swept
+canvas-wide over every fixture; a new child landing among its siblings; layout invariance
+under input reordering; and viewport-anchor arithmetic still returning the anchor to its
+original screen point. Five of the six fail against the pre-fix layout, each with a precise
+message — the sixth is a regression guard, so it passes both ways by design.
