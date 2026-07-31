@@ -1102,3 +1102,49 @@ cancels a half-finished add; the buttons exist and are inert until there is some
 undo issues a DELETE and redo re-POSTs *the same payload*; and the keyboard shortcuts drive
 the same history as the buttons. The whole-app mounts are memory-hungry, so
 `check:interaction` runs with a raised heap rather than with its coverage trimmed.
+
+---
+
+## 28. Pointer capture belongs to dragging, not to pressing
+
+**Context.** After #27 shipped editable names, the report came back unchanged: *"I still
+cannot edit a node."* The source was right and Vite was serving it — `data-edit-name` was in
+the module the browser received. The handler simply never ran.
+
+**Cause.** `usePanZoom` called `setPointerCapture` in `onPointerDown`. Once an element
+captures a pointer, the browser delivers the rest of that gesture to it — and `click`, which
+is synthesised from the down/up pair, is dispatched at the capturing element rather than at
+what was actually pressed. Every `onClick` drawn inside the SVG therefore never fired: the
+card select, the year field, and now the name.
+
+The add-buttons worked, which is what made this so hard to see. They survive only because
+`Affordances` stops `pointerdown` from reaching the canvas — a line written to prevent a
+stray pan, which incidentally also prevented the capture. One component had immunity for an
+unrelated reason, so the canvas looked half-alive rather than broken.
+
+**Decision.** Capture is for dragging. It is now taken on the first `pointermove` past the
+2px threshold — and when a pinch begins, which is unambiguously a gesture — never on
+`pointerdown`. A press that does not move is a click and stays one. Panning is unaffected:
+by the time the pointer has moved enough to be a pan, the canvas holds it and keeps
+receiving moves even if the cursor leaves the element.
+
+This also means new controls drawn on the canvas no longer need to know about panning to be
+clickable, which is what let the previous fix look complete when it was not.
+
+**The test was answering an easier question than the browser asks.** The interaction checks
+stubbed `setPointerCapture` as a no-op and dispatched `click` directly at the element under
+test — so a dead click passed as working, and #27 shipped with the feature non-functional
+and a green suite. The harness now *models* capture: `setPointerCapture` records the target,
+and `clickElement` dispatches the click at whatever held the pointer during the gesture,
+read before `pointerup` releases it.
+
+With that harness and the old source, three checks fail — card select, opening the rename
+box, and closing it with Escape — while the affordance checks still pass, which is exactly
+the half-alive canvas that was reported. Two further checks pin the rule directly: a press
+that does not move must capture nothing, and a press that does move must capture.
+
+**Lesson, recorded because it cost a whole cycle.** A harness that simulates an interaction
+has to be faithful about *where events land*, not just that they were dispatched.
+Dispatching straight at the element skips the browser's own targeting — which is the very
+thing that was broken. When a fix "works in the checks" and not in the browser, suspect the
+harness's model of the platform before re-reading the feature code.

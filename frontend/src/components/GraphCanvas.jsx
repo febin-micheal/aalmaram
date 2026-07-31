@@ -373,6 +373,7 @@ function PersonCard({
       </text>
       <g
         className="cursor-text"
+        data-edit-years={person.id}
         onClick={(event) => {
           event.stopPropagation()
           onEditYear?.()

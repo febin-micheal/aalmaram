@@ -74,13 +74,27 @@ class PointerEvent extends dom.window.MouseEvent {
 }
 dom.window.PointerEvent = PointerEvent
 
-// Pointer capture is how a real browser keeps a drag glued to one element. jsdom has no
-// implementation and the source calls it optionally, but define no-ops so the code under
-// test takes the same branch it takes in a browser rather than skipping it.
-dom.window.Element.prototype.setPointerCapture = function setPointerCapture() {}
-dom.window.Element.prototype.releasePointerCapture = function releasePointerCapture() {}
+/**
+ * Pointer capture, modelled rather than stubbed away.
+ *
+ * This matters more than it looks. Once an element captures the pointer, the browser sends
+ * the rest of that gesture to the capturing element — and `click`, which is synthesised
+ * from the down/up pair, is dispatched at their common ancestor, i.e. the capturing
+ * element. So an `onClick` on a child is simply never called.
+ *
+ * Stubbing these as no-ops, and dispatching `click` straight at the element under test, is
+ * what let a dead click pass as working: the harness was answering an easier question than
+ * the browser asks.
+ */
+let captureTarget = null
+dom.window.Element.prototype.setPointerCapture = function setPointerCapture() {
+  captureTarget = this
+}
+dom.window.Element.prototype.releasePointerCapture = function releasePointerCapture() {
+  captureTarget = null
+}
 dom.window.Element.prototype.hasPointerCapture = function hasPointerCapture() {
-  return false
+  return captureTarget === this
 }
 // SVG geometry that jsdom does not compute; the layout is supplied directly, so zero is safe.
 dom.window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
@@ -243,20 +257,31 @@ async function mount(props = {}) {
   }
 }
 
-/** A real press-and-release on an element, in the order a browser produces it. */
+/**
+ * A real press-and-release, in the order and *at the targets* a browser produces them.
+ *
+ * The click goes to the capturing element when the gesture was captured, which is the whole
+ * point — dispatching it at `element` unconditionally is what made a dead button look live.
+ */
 async function clickElement(element, { drag = 0 } = {}) {
-  const fire = (type, init) =>
-    element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, ...init }))
+  captureTarget = null
+  const at = (node, type, init) =>
+    node.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, ...init }))
 
   await act(async () => {
-    fire('pointerdown', { clientX: 100, clientY: 100, button: 0 })
+    at(element, 'pointerdown', { clientX: 100, clientY: 100, button: 0 })
+    // Read the capture *now*: pointerup releases it, and the click still belongs to
+    // whichever element held the pointer during the gesture.
+    const captured = captureTarget
+    const moveTarget = captured ?? element
     if (drag) {
-      // Moves go to the element that captured the pointer, i.e. wherever pointerdown landed.
-      fire('pointermove', { clientX: 100 + drag, clientY: 100 + drag, button: 0 })
+      at(moveTarget, 'pointermove', { clientX: 100 + drag, clientY: 100 + drag, button: 0 })
     }
-    fire('pointerup', { clientX: 100 + drag, clientY: 100 + drag, button: 0 })
-    fire('click', { clientX: 100 + drag, clientY: 100 + drag, button: 0, detail: 1 })
+    at(moveTarget, 'pointerup', { clientX: 100 + drag, clientY: 100 + drag, button: 0 })
+    // click is synthesised at the common ancestor of down and up — the capturing element.
+    at(captured ?? element, 'click', { clientX: 100 + drag, clientY: 100 + drag, button: 0, detail: 1 })
   })
+  captureTarget = null
 }
 
 console.log('affordance wiring')
@@ -619,6 +644,54 @@ check('Ctrl+Z and Ctrl+Y drive the same history as the buttons', () => {
       2,
       'Ctrl+Y must redo',
     )
+    app.cleanup()
+  })()
+})
+
+check('a press that does not move never captures the pointer', () => {
+  // The invariant behind the whole class of bug: capture is for dragging. If it is taken
+  // on pointerdown, the browser retargets `click` to the canvas and every control drawn
+  // inside it goes dead — silently, because the elements still render and still hover.
+  return (async () => {
+    const view = await mount()
+    const card = view.container.querySelector('[data-person-id="clement"]')
+    captureTarget = null
+    await act(async () => {
+      card.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100, clientY: 100, button: 0 }),
+      )
+    })
+    assert.equal(captureTarget, null, 'a plain press must leave the click alone')
+    view.cleanup()
+  })()
+})
+
+check('a press that does move captures, so panning still works', () => {
+  return (async () => {
+    const view = await mount()
+    const card = view.container.querySelector('[data-person-id="clement"]')
+    captureTarget = null
+    const fire = (node, type, init) =>
+      node.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, ...init }))
+
+    await act(async () => {
+      fire(card, 'pointerdown', { clientX: 100, clientY: 100, button: 0 })
+      fire(card, 'pointermove', { clientX: 160, clientY: 140, button: 0 })
+    })
+    assert.ok(captureTarget, 'once it is a drag, the canvas must hold the pointer')
+    assert.equal(captureTarget.tagName.toLowerCase(), 'svg')
+    view.cleanup()
+  })()
+})
+
+check('the years under a name are clickable too', () => {
+  // Same pattern as the name, and it was dead for the same reason.
+  return (async () => {
+    const app = await mountApp()
+    const years = app.q('[data-edit-years="clement"]')
+    assert.ok(years, 'the lifespan line needs a hook of its own')
+    await clickElement(years)
+    assert.ok(app.q('input'), 'clicking the years opened no editor')
     app.cleanup()
   })()
 })

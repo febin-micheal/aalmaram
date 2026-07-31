@@ -23,6 +23,8 @@ export function usePanZoom(svgRef) {
   const pointers = useRef(new Map())
   const pinch = useRef(null)
   const lastTap = useRef(0)
+  // Pointers this canvas has actually taken capture of. See onPointerMove.
+  const captured = useRef(new Set())
 
   useEffect(() => {
     const svg = svgRef.current
@@ -110,10 +112,28 @@ export function usePanZoom(svgRef) {
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }
   }
 
+  const takeCapture = (event) => {
+    if (captured.current.has(event.pointerId)) return
+    captured.current.add(event.pointerId)
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  /**
+   * Note what went down, but do **not** capture the pointer yet.
+   *
+   * Capturing here breaks every click inside the canvas. Once an element captures a
+   * pointer the browser sends the rest of the gesture to it, and `click` — synthesised
+   * from the down/up pair — is dispatched at the capturing element rather than at what
+   * you actually pressed. So the card you clicked, the name you meant to edit and the
+   * year below it all stopped receiving clicks; only the add-buttons still worked, and
+   * only because they stop `pointerdown` from reaching here at all.
+   *
+   * Capture is for dragging, so it is taken when a drag actually begins — see
+   * onPointerMove. A press that never moves is a click, and stays one.
+   */
   const onPointerDown = (event) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-    event.currentTarget.setPointerCapture?.(event.pointerId)
 
     if (pointers.current.size === 2) {
       // Second finger down: stop panning, start pinching.
@@ -144,6 +164,9 @@ export function usePanZoom(svgRef) {
     }
 
     if (pointers.current.size === 2 && pinch.current) {
+      // A pinch is unambiguously a gesture: hold the pointers so a finger sliding off the
+      // canvas does not strand it mid-zoom.
+      takeCapture(event)
       const [a, b] = [...pointers.current.values()]
       const distance = distanceBetween(a, b)
       if (distance < MIN_PINCH_DISTANCE) return
@@ -162,14 +185,21 @@ export function usePanZoom(svgRef) {
     if (!drag) return
     const dx = event.clientX - drag.startX
     const dy = event.clientY - drag.startY
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      drag.moved = true
+      // Past the threshold this is a pan, not a click, so the canvas takes the pointer and
+      // keeps receiving moves even if the cursor leaves it.
+      takeCapture(event)
+    }
     drag.startX = event.clientX
     drag.startY = event.clientY
     setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
   }
 
   const onPointerUp = (event) => {
-    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    if (captured.current.delete(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    }
     pointers.current.delete(event.pointerId)
     if (pointers.current.size < 2) pinch.current = null
     if (pointers.current.size === 0) dragging.current = null
